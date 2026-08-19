@@ -1,5 +1,7 @@
 # 1.4 AnyChain Transaction Assistant
 
+## Link: https://www.cloudwalk.io/nimbus
+
 ## Goal
 
 Build a configurable AI assistant that explains and troubleshoots EVM transactions and Solidity smart contracts. The tool must be network-agnostic: it should work on any EVM network (e.g., Ethereum mainnet) and be re-targetable to another network (e.g., CloudWalk private) by changing configuration only (no code changes).
