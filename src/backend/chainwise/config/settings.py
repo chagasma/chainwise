@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     host: str = "0.0.0.0"
     port: int = 8000
+    network: str = "ethereum-mainnet"
 
 
 @lru_cache

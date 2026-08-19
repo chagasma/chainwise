@@ -1,0 +1,9 @@
+name: Ethereum Mainnet
+chain_id: 1
+explorer_url: https://eth.blockscout.com
+rpc_url: https://ethereum-rpc.publicnode.com
+repos:
+  - https://github.com/ethereum/go-ethereum
+abi_strategy:
+  - explorer
+  - repo

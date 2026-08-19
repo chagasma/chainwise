@@ -1,0 +1,9 @@
+name: Polygon PoS
+chain_id: 137
+explorer_url: https://polygon.blockscout.com
+rpc_url: https://polygon-bor-rpc.publicnode.com
+repos:
+  - https://github.com/maticnetwork/contracts
+abi_strategy:
+  - explorer
+  - repo
