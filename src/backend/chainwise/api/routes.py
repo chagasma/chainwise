@@ -1,3 +1,5 @@
+import json
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.graph.state import CompiledStateGraph
@@ -8,6 +10,7 @@ from chainwise.agent import EXPLAIN_SYSTEM_PROMPT
 from chainwise.api.schemas import ExplanationResponse, GreetingResponse, TransactionSummary
 from chainwise.config import NetworkConfig, Settings, get_settings, load_network
 from chainwise.observability import get_logger
+from chainwise.services import enrich_tokens
 
 logger = get_logger("chainwise.api")
 
@@ -72,11 +75,21 @@ def explain_transaction(
     graph: CompiledStateGraph = Depends(get_graph),
 ) -> ExplanationResponse:
     summary = _get_transaction_summary(tx_hash, network)
+    transfer_addresses = {
+        log.address
+        for log in summary.logs
+        if log.event and log.event.split("(", 1)[0] == "Transfer"
+    }
+    tokens = enrich_tokens(transfer_addresses, network)
 
+    prompt_content = json.dumps(
+        {"summary": summary.model_dump(mode="json"), "tokens": [t.model_dump() for t in tokens]},
+        indent=2,
+    )
     initial_state = {
         "messages": [
             SystemMessage(content=EXPLAIN_SYSTEM_PROMPT),
-            HumanMessage(content=summary.model_dump_json(indent=2)),
+            HumanMessage(content=prompt_content),
         ]
     }
     try:
@@ -91,4 +104,6 @@ def explain_transaction(
         raise HTTPException(status_code=502, detail=f"LLM explanation unavailable: {exc}") from exc
 
     explanation = result["messages"][-1].content
-    return ExplanationResponse(summary=summary, explanation=explanation, thread_id=tx_hash)
+    return ExplanationResponse(
+        summary=summary, tokens=tokens, explanation=explanation, thread_id=tx_hash
+    )

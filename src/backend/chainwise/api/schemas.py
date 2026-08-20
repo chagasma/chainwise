@@ -2,6 +2,8 @@ from typing import Any, Literal, Self
 
 from pydantic import BaseModel
 
+from chainwise.services.enricher import TokenMetadata
+
 
 def _nested(d: dict[str, Any] | None, key: str) -> Any | None:
     """`(d or {}).get(key)` — a field that's present but sometimes null in Blockscout's JSON."""
@@ -74,5 +76,6 @@ class ExplanationResponse(BaseModel):
     """A natural-language explanation, grounded in the underlying transaction data."""
 
     summary: TransactionSummary
+    tokens: list[TokenMetadata]
     explanation: str
     thread_id: str
