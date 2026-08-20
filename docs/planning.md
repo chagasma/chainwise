@@ -5,6 +5,91 @@
 
 ---
 
+## 0. Status Atual (checkpoint — última atualização: 2026-08-20)
+
+**Backend é o foco atual; frontend fica pra depois.** Tudo abaixo já está implementado,
+testado (unitário + validado ao vivo contra APIs reais) e commitado em `main`.
+
+### O que já funciona
+
+- **Pipeline completo `GET /tx/{hash}/explain`**: Blockscout → enrichment de tokens via RPC →
+  repo grounding (fallback de ABI) → LangGraph → OpenRouter → explicação em linguagem natural
+  com citação de fontes. Validado ponta a ponta com transações reais no Ethereum mainnet e na
+  Polygon PoS.
+- **Config-driven portability comprovada**: troquei `CHAINWISE_NETWORK` entre `ethereum-mainnet`
+  e `polygon-pos` sem tocar em código e o pipeline inteiro funcionou (explorer, RPC, LLM).
+  `gnosis-chain` tem RPC funcionando, mas o explorer oficial (`gnosis.blockscout.com`) está
+  fora do ar agora (redirecionando pra `gnosisscan.io`, que não é Blockscout-compatible) — ver
+  "Problemas conhecidos" abaixo. Isso não é bug nosso: validamos que o `BlockscoutClient`
+  degrada graciosamente (502 com mensagem clara) exatamente como devia.
+- **Adapters** (`adapters/`): `BlockscoutClient` (tx/receipt/logs), `RPCClient` (`eth_call`/
+  `eth_getCode` via JSON-RPC puro, sem `web3.py`), `GitHubClient` (code search + file contents).
+  Todos seguem o mesmo padrão: client HTTP burro, erros tipados (`AdapterError`/
+  `AdapterNotFoundError` e subclasses por adapter), tratados uniformemente em
+  `api/routes.py::_translate_adapter_error`.
+- **Enrichment de tokens** (`services/enricher.py`): resolve `symbol`/`decimals` ERC-20 via
+  `eth_call`, decodificação ABI feita na mão (sem `eth_abi` — só 2 tipos primitivos), com
+  bounds-check contra resposta vazia (`"0x"`) mascarando falha como sucesso.
+- **Repo grounding / fallback de ABI** (`services/decoder.py` + `services/repo_grounding.py`):
+  quando a Blockscout não decodifica (`decoded_input is null`), busca artefatos ABI nos repos
+  configurados por rede (aceita ABI array puro, artifact Truffle/Hardhat, e `solc
+  --combined-json abi` com múltiplos contratos por arquivo), calcula selectors via `keccak256`
+  de verdade (`eth-utils`/`eth-abi`, com fallback de assinatura canônica recursivo pra structs/
+  tuples), decodifica o calldata e cita o arquivo exato no GitHub. Precisa de `GITHUB_TOKEN`
+  pra funcionar de verdade (a API de code search do GitHub exige auth) — sem token, degrada
+  graciosamente pra "sem grounding" (log em `info`, não crasha nada).
+- **Agent** (`agent/`): grafo LangGraph de 1 nó (`explain`), checkpointer Postgres, LLM via
+  OpenRouter (`langchain_openai.ChatOpenAI`). Ver ADR 0002 pra justificativa completa.
+- **Config de rede**: `ethereum-mainnet`, `gnosis-chain`, `polygon-pos` (YAML por rede, ver
+  ADR 0001).
+- **67 testes** (unitários, tudo mockado via `httpx.MockTransport` — nenhum teste bate em rede
+  real), lint (`ruff`) e typecheck (`pyright`) limpos. Rodar com `make check`.
+- **3 revisões de qualidade de código** já passaram por essa base (via skill `code-quality`) —
+  achados corrigidos: deduplicação de erro/network lookup nas rotas, bug real de decode ABI
+  vazio, layering de `TokenMetadata`, `GitHubRateLimitedError` sem uso real.
+
+### O que falta (nessa ordem sugerida)
+
+1. **Failure diagnostics estruturado** — hoje o LLM só recebe `revert_reason` cru dentro do
+   summary e é instruído a comentar sobre ele no prompt, mas não existe um passo dedicado de
+   diagnóstico (causa provável + próximos passos), como pede o requisito do desafio. Dá pra
+   fazer como um segundo nó no grafo LangGraph, ramificando quando `status == "reverted"` — é
+   o tipo de branch que o ADR 0002 já previu quando justificou usar LangGraph em vez de uma
+   chamada única ao LLM.
+2. **Fechar o teste de portabilidade da Gnosis Chain** — o RPC já foi validado, só falta o
+   explorer voltar ao ar (ou achar uma URL alternativa) pra rodar o `/explain` completo nessa
+   rede também.
+3. **Frontend mínimo** — só existe um `.gitkeep` em `src/frontend/`. É o próximo bloco de
+   trabalho depois do backend estar fechado.
+4. **README + `docs/examples.md`** — setup, config, pelo menos 3 exemplos reais de
+   query/output (já temos vários rodados ao longo do desenvolvimento pra reaproveitar, incluindo
+   um caso de repo grounding real com `go-ethereum`).
+5. **Bônus** (se sobrar tempo): structured triage flow, modos developer/support/auditor,
+   multi-transaction analysis, gas optimization suggestions, security vulnerability detection.
+   Nada disso foi iniciado ainda.
+
+### Problemas conhecidos
+
+- `gnosis-chain.yaml` aponta pra `https://gnosis.blockscout.com`, que é a URL oficial
+  documentada (confirmada via Chainlist e docs.gnosischain.com), mas está redirecionando (301)
+  pra `gnosisscan.io` no momento — pode ser uma instabilidade temporária. Não mexi na config
+  porque não é uma URL errada, é um serviço externo fora do ar agora. Vale reconferir antes de
+  fechar o teste de portabilidade dessa rede.
+- Repo grounding só encontra algo de verdade com `GITHUB_TOKEN` configurado (API do GitHub
+  exige auth pra code search). Sem token, sempre degrada pra `grounding: null` — comportamento
+  esperado e testado, só documentando pra não confundir num teste manual futuro.
+
+### Referências rápidas
+
+- ADR 0001 (`docs/adr/0001-*.md`): por que YAML por rede em vez de um `networks.yaml` único.
+- ADR 0002 (`docs/adr/0002-*.md`): por que LangGraph (não uma chamada direta ao LLM) e por que
+  OpenRouter (não um SDK de provedor específico).
+- `make check` roda lint + typecheck + testes. `make db-up` sobe o Postgres do checkpointer
+  (atenção: se a porta 5432 já estiver em uso por outro projeto local, suba um container avulso
+  numa porta alternativa e aponte `CHAINWISE_DATABASE_URL` pra ela).
+
+---
+
 ## 1. Contexto e Objetivo
 
 Construir um assistente **network-agnostic** que recebe um hash de transação EVM e devolve uma explicação clara em linguagem natural, com diagnóstico de falhas quando aplicável. A mudança de rede (ex: Ethereum mainnet → CloudWalk private) deve ser feita apenas alterando arquivos de configuração.
@@ -17,15 +102,15 @@ O projeto será entregue como um repositório localmente executável, com README
 
 ### Funcionalidades obrigatórias
 
-- [ ] **Transaction Explainer**: resumo de transação a partir do hash (chamadas, transfers, eventos).
-- [ ] **Failure Diagnostics**: diagnóstico de transações revertidas/falhas com causas prováveis e próximos passos.
-- [ ] **Explorer Integration (Blockscout-compatible)**: busca de tx, receipt, logs e ABI via API configurável.
-- [ ] **On-chain Context via RPC**: `eth_call` configurável para enriquecer contexto (ex: `decimals`, `symbol`, `balanceOf`).
-- [ ] **Smart Contract Repo Grounding**: integração com repositórios GitHub configurados para explicar funções e citar código-fonte.
-- [ ] **Interface Simples**: API REST (FastAPI) + frontend web minimalista.
-- [ ] **Config-driven Portability**: toda a configuração centralizada (explorer URL, RPC, repos, estratégia de ABI).
-- [ ] **Grounded Answers**: toda resposta inclui citações/links para as fontes usadas.
-- [ ] **Graceful Degradation**: o sistema continua funcionando mesmo quando ABI, RPC, explorer ou repo estão indisponíveis, informando claramente o que falta.
+- [x] **Transaction Explainer**: resumo de transação a partir do hash (chamadas, transfers, eventos). `GET /tx/{hash}/explain`, validado com txs reais em 2 redes.
+- [ ] **Failure Diagnostics**: diagnóstico de transações revertidas/falhas com causas prováveis e próximos passos. *Parcial* — `revert_reason` já chega ao LLM e ele é instruído a comentar sobre ele, mas não existe um passo/nó dedicado de diagnóstico estruturado.
+- [x] **Explorer Integration (Blockscout-compatible)**: busca de tx, receipt, logs e ABI via API configurável. `adapters/blockscout.py`.
+- [x] **On-chain Context via RPC**: `eth_call` configurável para enriquecer contexto (`decimals`, `symbol` via `services/enricher.py`; `adapters/rpc.py` também expõe `eth_getCode` genérico).
+- [x] **Smart Contract Repo Grounding**: integração com repositórios GitHub configurados para explicar funções e citar código-fonte. `adapters/github.py` + `services/decoder.py` + `services/repo_grounding.py`, validado ao vivo com `go-ethereum`.
+- [ ] **Interface Simples**: API REST (FastAPI) pronta; frontend web minimalista ainda não iniciado (só `.gitkeep`).
+- [x] **Config-driven Portability**: toda a configuração centralizada (explorer URL, RPC, repos, estratégia de ABI). Validada trocando de rede sem mudar código (ver seção 0).
+- [x] **Grounded Answers**: toda resposta inclui citações/links para as fontes usadas (`source_url` do explorer + `source_url` do repo quando há grounding).
+- [x] **Graceful Degradation**: o sistema continua funcionando mesmo quando ABI, RPC, explorer ou repo estão indisponíveis, informando claramente o que falta. Validado ao vivo com o explorer da Gnosis Chain fora do ar.
 - [ ] **README**: setup, configuração e pelo menos 3 exemplos de queries/outputs.
 
 ### Funcionalidades bônus (se der tempo)
@@ -53,10 +138,10 @@ O projeto será entregue como um repositório localmente executável, com README
 | Camada | Tecnologia | Justificativa |
 |--------|------------|---------------|
 | Backend/API | Python + FastAPI | Produtividade, ecossistema maduro, async nativo. |
-| Blockchain | `web3.py`, `eth_abi`, `eth_utils` | Decodificação de ABI, eventos e chamadas EVM. |
+| Blockchain | `httpx` (JSON-RPC puro) + `eth_abi`/`eth_utils` | Chamadas EVM (`eth_call`) via HTTP direto, sem `web3.py` inteiro; decodificação de ABI real (selectors via `keccak256`, `eth_abi.decode`) só onde precisamos (repo grounding). |
 | LLM | OpenRouter | Acesso a múltiplos modelos (GPT-4o, Claude, DeepSeek, etc.) com uma única API. |
-| Agent/Pipeline | Pipeline customizado em Python | Fluxo determinístico e explícito; LangGraph pode ser overkill para esse escopo. |
-| Cache/Storage | SQLite (local) + opcional Redis | Cache de ABI, código de contrato e respostas sem dependências externas pesadas. |
+| Agent/Pipeline | **LangGraph** | Decisão revista: o roadmap tem branches reais (triage, modos, multi-tx), então um grafo com nós/edges explícitos + checkpointing embutido ganhou de um pipeline customizado. Ver ADR 0002. |
+| Cache/Storage | Postgres (checkpoints do LangGraph) | Sem cache de ABI/resposta ainda — não implementado. |
 | Frontend | Next.js ou HTML+JS simples | Web preferencial, mas pode ser minimalista. |
 | Configuração | Pydantic Settings + YAML/`.env` | Centralizada, tipada e validada. |
 | Testes | pytest | Testes unitários e de integração. |
@@ -65,6 +150,10 @@ O projeto será entregue como um repositório localmente executável, com README
 ---
 
 ## 5. Arquitetura de Alto Nível
+
+> Diagrama do desenho original — os nomes de módulo mudaram na implementação real
+> (`workflow.py` → `agent/graph.py`, sem `token_detector`/`explainer` como arquivos próprios,
+> sem cache SQLite ainda). Ver seção 6 para a estrutura real e seção 0 para o status atual.
 
 ```
 ┌─────────────────┐
@@ -127,81 +216,70 @@ chainwise/
 │
 ├── src/
 │   ├── backend/
-│   │   ├── pyproject.toml         # Dependências Python
-│   │   ├── requirements.txt       # Alternativa/congelamento
+│   │   ├── pyproject.toml         # Dependências Python (uv)
+│   │   ├── uv.lock
 │   │   ├── Dockerfile
 │   │   ├── .env.example
 │   │   ├── chainwise/             # Pacote Python principal
 │   │   │   ├── __init__.py
-│   │   │   ├── main.py            # Entrypoint FastAPI
+│   │   │   ├── main.py            # Entrypoint FastAPI (lifespan monta o grafo + checkpointer)
 │   │   │   ├── config/
-│   │   │   │   ├── __init__.py
-│   │   │   │   └── settings.py    # Pydantic Settings + networks.yaml
+│   │   │   │   ├── settings.py    # Pydantic Settings (.env)
+│   │   │   │   ├── network.py     # NetworkConfig + load_network()
+│   │   │   │   └── networks/      # Um YAML por rede (ver ADR 0001)
+│   │   │   │       ├── ethereum-mainnet.yaml
+│   │   │   │       ├── gnosis-chain.yaml
+│   │   │   │       └── polygon-pos.yaml
 │   │   │   ├── api/
-│   │   │   │   ├── __init__.py
-│   │   │   │   ├── routes.py      # Endpoints HTTP
-│   │   │   │   └── schemas.py     # Pydantic request/response models
-│   │   │   ├── adapters/
-│   │   │   │   ├── __init__.py
-│   │   │   │   ├── blockscout.py  # Cliente Blockscout v2
-│   │   │   │   ├── rpc.py         # Cliente RPC (eth_call, etc.)
-│   │   │   │   ├── github.py      # Busca de código em repos
-│   │   │   │   └── openrouter.py  # Cliente LLM
-│   │   │   ├── services/
-│   │   │   │   ├── __init__.py
-│   │   │   │   ├── decoder.py     # Decodificação de ABI/input/logs
-│   │   │   │   ├── token_detector.py  # Detecção ERC-20/721/1155
-│   │   │   │   ├── enricher.py    # Coleta de contexto on-chain
-│   │   │   │   ├── repo_grounding.py  # Grounding em repos GitHub
-│   │   │   │   └── explainer.py   # Montagem do contexto + chamada LLM
+│   │   │   │   ├── routes.py      # Endpoints HTTP + get_network/get_graph deps
+│   │   │   │   └── schemas.py     # Response models (TransactionSummary, ExplanationResponse, ...)
+│   │   │   ├── adapters/          # Clientes HTTP "burros" — sem interpretação de dados
+│   │   │   │   ├── errors.py      # AdapterError/AdapterNotFoundError (base comum)
+│   │   │   │   ├── blockscout.py  # Cliente Blockscout v2 (tx, receipt, logs)
+│   │   │   │   ├── rpc.py         # Cliente JSON-RPC puro (eth_call, eth_getCode)
+│   │   │   │   └── github.py      # Code search + file contents da API do GitHub
+│   │   │   ├── services/          # Lógica de negócio, independente de framework web
+│   │   │   │   ├── enricher.py    # Metadata ERC-20 (symbol/decimals) via RPC
+│   │   │   │   ├── decoder.py     # Matemática de ABI: selectors, canonical signature, decode
+│   │   │   │   └── repo_grounding.py  # Busca+match de artefato ABI nos repos configurados
 │   │   │   ├── agent/
-│   │   │   │   ├── __init__.py
-│   │   │   │   ├── workflow.py    # Pipeline de execução
-│   │   │   │   └── prompts.py     # Prompts em Jinja2/string
+│   │   │   │   ├── graph.py       # Grafo LangGraph (hoje: 1 nó "explain")
+│   │   │   │   ├── llm.py         # ChatOpenAI apontado pro OpenRouter
+│   │   │   │   ├── prompts.py     # System prompt
+│   │   │   │   └── checkpointer.py  # PostgresSaver do LangGraph
 │   │   │   ├── models/
-│   │   │   │   ├── __init__.py
-│   │   │   │   └── domain.py      # Modelos de domínio (Transaction, Log, etc.)
-│   │   │   └── infrastructure/
-│   │   │       ├── __init__.py
-│   │   │       └── cache.py       # Cache local (SQLite/dict)
-│   │   └── tests/
-│   │       ├── __init__.py
-│   │       ├── conftest.py
-│   │       ├── test_adapters.py
-│   │       ├── test_services.py
-│   │       └── test_api.py
+│   │   │   │   └── domain.py      # DTOs compartilhados entre services e api (TokenMetadata, DecodedCall, RepoGroundingResult)
+│   │   │   └── observability/
+│   │   │       ├── logging.py     # Logging estruturado (JSON)
+│   │   │       └── middleware.py  # Request context (request_id, etc.)
+│   │   └── tests/                 # 1 arquivo de teste por módulo, tudo mockado (httpx.MockTransport)
 │   │
 │   └── frontend/
-│       ├── package.json
-│       ├── Dockerfile
-│       ├── src/
-│       │   ├── app/
-│       │   │   ├── page.tsx       # Tela principal
-│       │   │   └── layout.tsx
-│       │   └── components/
-│       │       ├── TransactionInput.tsx
-│       │       ├── ExplanationCard.tsx
-│       │       └── SourceList.tsx
-│       └── public/
+│       └── .gitkeep                # Ainda não iniciado — próximo bloco depois do backend
 │
-└── scripts/
-    └── setup.sh                   # Script de setup inicial
+└── scripts/                        # Ainda não criado
 ```
 
 ### Notas sobre a estrutura
 
 - `src/`: agrupa todo o código-fonte da aplicação (backend + frontend) em um único lugar, separado de documentação e configuração de repo.
 - `src/backend/chainwise/`: pacote Python principal. Fica diretamente em `backend/` (sem `src/` aninhado) para manter imports simples e compatíveis com `pyproject.toml`.
-- `src/frontend/src/`: código-fonte do Next.js/React.
-- `adapters/`: cada fonte de dados externa tem seu próprio adapter com interface clara.
-- `services/`: lógica pura, independente de framework web.
-- `agent/`: orquestração do pipeline e prompts.
-- `infrastructure/`: detalhes técnicos como cache e persistência.
-- `docs/`: centraliza toda a documentação do projeto.
+- `adapters/`: cada fonte de dados externa tem seu próprio adapter com interface clara — client HTTP burro, retorna dado cru, erros tipados por adapter (todos herdam de `AdapterError`/`AdapterNotFoundError`).
+- `services/`: lógica pura, independente de framework web. `token_detector.py`/`explainer.py` do desenho original acabaram não virando arquivos separados — a detecção de transfer ficou inline em `api/routes.py` (é um one-liner) e a montagem do prompt virou o próprio `LLMPromptPayload` em `api/schemas.py`.
+- `agent/`: orquestração do grafo LangGraph e prompts (o `workflow.py` do desenho original virou `graph.py`).
+- `models/domain.py`: existe especificamente para DTOs que tanto `services/` quanto `api/` precisam — evita um ciclo de import entre as duas camadas (ver histórico de commits do `repo_grounding`/`enricher` pra contexto).
+- `infrastructure/cache.py` do desenho original não foi criado — não há cache de ABI/resposta ainda.
+- `docs/`: centraliza toda a documentação do projeto, incluindo os ADRs (`docs/adr/`).
 
 ---
 
 ## 7. Fluxo de Dados de uma Requisição
+
+> Também do desenho original. O fluxo real de hoje: Blockscout (tx+logs) → filtro de Transfer
+> nos logs já decodificados → `enricher.enrich_tokens` (RPC, se houver Transfers) →
+> `repo_grounding.ground_transaction` (só se `decoded_input` for null) → `LLMPromptPayload` →
+> `graph.invoke` (LangGraph → OpenRouter). Não há chamadas em paralelo ainda (passo 4/5 abaixo
+> são sequenciais na implementação real) nem diagnóstico como etapa separada (passo 10).
 
 ```
 1. Usuário envia tx_hash via frontend
@@ -239,42 +317,51 @@ chainwise/
 
 ## 8. Fases de Implementação
 
-### Fase 1 — Fundação
-- [ ] Configurar projeto Python (pyproject.toml, lint, pytest).
-- [ ] Criar estrutura base de pastas e módulos.
-- [ ] Implementar `config/settings.py` com Pydantic.
-- [ ] Criar schemas de request/response.
+### Fase 1 — Fundação ✅
+- [x] Configurar projeto Python (pyproject.toml, lint, pytest) — `uv`, `ruff`, `pyright`, `pytest`.
+- [x] Criar estrutura base de pastas e módulos.
+- [x] Implementar `config/settings.py` com Pydantic.
+- [x] Criar schemas de request/response.
 
-### Fase 2 — Adapters
-- [ ] Implementar `blockscout.py` (tx, receipt, logs, ABI).
-- [ ] Implementar `rpc.py` (`eth_call`, `getCode`, etc.).
-- [ ] Implementar `github.py` (busca de código em repos configurados).
-- [ ] Implementar `openrouter.py` (chamada ao LLM).
-- [ ] Adicionar cache local e retries.
+### Fase 2 — Adapters ✅ (exceto cache/retries)
+- [x] Implementar `blockscout.py` (tx, receipt, logs, ABI).
+- [x] Implementar `rpc.py` (`eth_call`, `getCode`).
+- [x] Implementar `github.py` (busca de código em repos configurados).
+- [x] Implementar chamada ao LLM — `agent/llm.py` (`ChatOpenAI` apontado pro OpenRouter; não virou
+      um adapter próprio porque já é a interface do LangChain, ver ADR 0002).
+- [ ] Adicionar cache local e retries — não implementado ainda.
 
-### Fase 3 — Serviços Core
-- [ ] Implementar `decoder.py` (decodificação de funções e eventos).
-- [ ] Implementar `token_detector.py`.
-- [ ] Implementar `enricher.py` (eth_call para contexto).
-- [ ] Implementar `repo_grounding.py`.
-- [ ] Implementar `explainer.py` (montagem de prompt e chamada LLM).
+### Fase 3 — Serviços Core ✅ (exceto explainer.py como arquivo próprio)
+- [x] Implementar `decoder.py` (decodificação de funções via ABI — selectors, structs, calldata).
+- [x] Detecção de token transfers — não virou `token_detector.py` separado, ficou inline em
+      `api/routes.py` (filtro de 1 linha sobre os logs decodificados).
+- [x] Implementar `enricher.py` (eth_call para contexto — symbol/decimals ERC-20).
+- [x] Implementar `repo_grounding.py`.
+- [x] Montagem de prompt e chamada LLM — não virou `explainer.py` separado, ficou em
+      `api/routes.py` (`LLMPromptPayload` + `graph.invoke`).
 
-### Fase 4 — Pipeline/Agent
-- [ ] Implementar `workflow.py` orquestrando todo o fluxo.
-- [ ] Implementar `prompts.py` com templates claros.
-- [ ] Adicionar graceful degradation em cada etapa.
+### Fase 4 — Pipeline/Agent ✅ (exceto diagnóstico de falha estruturado)
+- [x] Implementar o grafo orquestrando o fluxo — `agent/graph.py` (LangGraph, não um `workflow.py`
+      customizado — decisão revista, ver ADR 0002).
+- [x] Implementar `prompts.py` com regras claras (grounding vs explorer, tokens, revert).
+- [x] Adicionar graceful degradation em cada etapa — validado ao vivo (explorer fora do ar,
+      GitHub sem token, RPC de token não-padrão).
+- [ ] Nó/branch dedicado de failure diagnostics para transações revertidas — **próximo passo**.
 
-### Fase 5 — API + Frontend
-- [ ] Criar endpoints FastAPI (`POST /explain`, `GET /health`, etc.).
-- [ ] Criar frontend minimalista.
+### Fase 5 — API + Frontend (só API feita)
+- [x] Criar endpoints FastAPI — `GET /`, `GET /network`, `GET /tx/{hash}`, `GET /tx/{hash}/explain`.
+- [ ] Criar frontend minimalista — não iniciado.
 - [ ] Integrar frontend com backend.
 
-### Fase 6 — Documentação e Testes
+### Fase 6 — Documentação e Testes (parcial)
 - [ ] Escrever README completo.
 - [ ] Criar `docs/examples.md` com 3+ exemplos.
-- [ ] Adicionar testes unitários e de integração.
-- [ ] Revisar config-driven portability com pelo menos 2 redes.
-- [ ] Criar docker compose opcional.
+- [x] Adicionar testes unitários — 67 testes, tudo mockado (`httpx.MockTransport`), sem testes de
+      integração batendo em rede real (validação real foi feita manualmente, ver seção 0).
+- [x] Revisar config-driven portability com pelo menos 2 redes — Ethereum mainnet e Polygon PoS
+      validadas ponta a ponta; Gnosis Chain com RPC validado, explorer pendente (fora do ar).
+- [ ] Criar docker compose opcional — existe `docker-compose.yml` só para o Postgres do
+      checkpointer; não cobre backend/frontend ainda.
 
 ---
 
@@ -282,14 +369,18 @@ chainwise/
 
 O projeto será considerado pronto para envio quando:
 
-- [ ] Uma transação real pode ser explicada corretamente em linguagem natural.
-- [ ] Transações revertidas recebem diagnóstico útil.
-- [ ] A troca de rede é feita apenas editando configuração.
-- [ ] Toda resposta inclui fontes/links utilizados.
-- [ ] O sistema funciona mesmo com algumas fontes indisponíveis.
-- [ ] O README permite que alguém rode o projeto localmente em poucos minutos.
-- [ ] Existem pelo menos 3 exemplos documentados.
-- [ ] O código está testado e bem estruturado.
+- [x] Uma transação real pode ser explicada corretamente em linguagem natural.
+- [ ] Transações revertidas recebem diagnóstico útil — hoje recebem *menção* ao revert_reason,
+      não um diagnóstico estruturado (causa provável + próximos passos).
+- [x] A troca de rede é feita apenas editando configuração.
+- [x] Toda resposta inclui fontes/links utilizados.
+- [x] O sistema funciona mesmo com algumas fontes indisponíveis.
+- [ ] O README permite que alguém rode o projeto localmente em poucos minutos — README ainda é
+      o placeholder padrão.
+- [ ] Existem pelo menos 3 exemplos documentados — não escritos em `docs/examples.md` ainda
+      (mas já temos exemplos reais rodados ao longo do desenvolvimento pra reaproveitar).
+- [x] O código está testado e bem estruturado — 67 testes, 3 rodadas de code-quality review
+      já aplicadas.
 
 ---
 
@@ -306,9 +397,28 @@ O projeto será considerado pronto para envio quando:
 
 ---
 
-## 11. Próximos Passos
+## 11. Próximos Passos (guia de continuidade)
 
-1. Aprovar/revisar este planejamento.
-2. Criar a estrutura de pastas no repositório.
-3. Começar pela Fase 1: configuração e schemas.
-4. Selecionar 2-3 redes de teste (ex: Ethereum mainnet + Sepolia) e transações exemplo para validação.
+Ordem sugerida pra retomar o trabalho — foco continua 100% backend antes do frontend:
+
+1. **Failure diagnostics estruturado** — adicionar um nó/branch no grafo LangGraph
+   (`agent/graph.py`) que ativa quando `summary.status == "reverted"`, com um prompt dedicado a
+   causa provável + próximos passos, em vez de depender só do `revert_reason` cru dentro do
+   prompt único de hoje. É o item que falta pra fechar a Fase 4 e o critério de sucesso da
+   seção 9.
+2. **Fechar a validação de portabilidade da Gnosis Chain** — reconferir se
+   `gnosis.blockscout.com` voltou ao ar; se não, decidir entre esperar ou trocar de explorer
+   pra essa rede (ver "Problemas conhecidos" na seção 0).
+3. **Frontend mínimo** — interface simples (web ou CLI) consumindo `GET /tx/{hash}/explain`.
+4. **README + `docs/examples.md`** — setup, config de rede, 3+ exemplos reais (já rodamos vários
+   ao longo do desenvolvimento, inclusive um caso de repo grounding real contra `go-ethereum`
+   com token do GitHub — dá pra reaproveitar os outputs).
+5. **Bônus, se sobrar tempo**: structured triage flow, modos developer/support/auditor,
+   multi-transaction analysis, gas optimization, security vulnerability detection — nenhum
+   iniciado ainda, todos ficam mais fáceis depois do nó de failure diagnostics existir (mesmo
+   padrão de branch no grafo).
+
+Pra retomar rápido numa sessão nova: leia a seção 0 (status atual) primeiro, depois `git log
+--oneline` pra ver a ordem real dos commits e suas mensagens (elas documentam a motivação de
+cada decisão em detalhe). Os ADRs em `docs/adr/` cobrem as duas decisões arquiteturais mais
+importantes já tomadas.
