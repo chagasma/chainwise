@@ -112,12 +112,28 @@ testado (unitário + validado ao vivo contra APIs reais) e commitado em `main`.
   privilegiada), rotulando isso como julgamento, não fato. Validado ao vivo com uma tx real de
   `approve()` com allowance máxima (max uint256) — `unlimited-approval` detectado corretamente e
   citado tanto no `security_findings` quanto na prosa, em `developer` e `auditor`.
+- **Structured triage flow**: 3º branch no grafo (`clarify`, ao lado de `explain`/`diagnose`) —
+  quando nem o explorer nem o repo grounding decodificaram a chamada (`decoded_input` e
+  `grounding` ambos null), mas *havia* calldata de verdade pra decodificar
+  (`raw_input not in (None, "0x")` — uma transferência simples de ETH não conta, não é "faltou
+  dado", é "não tinha o que decodificar"), o grafo roteia pro nó `clarify` em vez de `explain`,
+  que usa `CLARIFY_SYSTEM_PROMPT`: relata só o que é fato verificável (endereço, valor, status,
+  raw_input) sem especular sobre o que a chamada faz, e termina com **uma** pergunta específica
+  (ex: "você tem a ABI desse contrato, ou sabe qual repo/branch tem a fonte?"). `reverted` tem
+  prioridade sobre `undecoded` no roteamento (uma tx revertida sem decode já é tratada
+  graciosamente pelo `diagnose`, então saber que falhou vale mais que bloquear numa pergunta).
+  `ExplanationResponse.needs_clarification: bool` deixa isso detectável programaticamente sem
+  parsear a prosa; `api/routes.py::_is_undecoded()` é fonte única da condição, usada tanto pra
+  rotear o grafo quanto pro campo da resposta (não duplica a lógica). Validado ao vivo: uma tx
+  real com calldata que a Blockscout não decodificou gerou a pergunta certa
+  (`needs_clarification: true`); uma transferência simples de ETH não disparou o fluxo
+  (`needs_clarification: false`, resposta normal do `explain`).
 - **Bug real achado testando manualmente** (não pelos testes automatizados): a Blockscout às
   vezes manda `revert_reason` como objeto decodificado (erro customizado do Solidity, mesmo shape
   do `decoded_input`), não como string — `TransactionSummary` só aceitava string e 502ava.
   Corrigido em `api/schemas.py::_revert_reason`. Reforça que testes mockados não substituem bater
   numa API real de vez em quando.
-- **89 testes** (unitários, tudo mockado via `httpx.MockTransport`/fakes — nenhum teste bate em
+- **94 testes** (unitários, tudo mockado via `httpx.MockTransport`/fakes — nenhum teste bate em
   rede real), lint (`ruff`) e typecheck (`pyright`) limpos. Rodar com `make check`.
 - **6 revisões de qualidade de código** já passaram por essa base (via skill `code-quality`) —
   achados corrigidos: deduplicação de erro/network lookup nas rotas, bug real de decode ABI
@@ -154,7 +170,7 @@ testado (unitário + validado ao vivo contra APIs reais) e commitado em `main`.
    - [x] Security vulnerability detection baseada em padrões conhecidos — feito, dedicada
      (`services/security.py::detect_risk_patterns`), não só inferência do modo `auditor`. Ver
      seção "O que já funciona".
-   - [ ] Structured triage flow (perguntas esclarecedoras antes de concluir).
+   - [x] Structured triage flow — feito, nó `clarify` no grafo. Ver seção "O que já funciona".
    - [ ] Multi-transaction analysis.
 6. **Frontend mínimo** — só existe um `.gitkeep` em `src/frontend/`. Deixado por último, depois
    do backend (core + bônus que entrarem) estar fechado.
@@ -209,7 +225,7 @@ O projeto será entregue como um repositório localmente executável, com README
 
 ### Funcionalidades bônus (se der tempo)
 
-- [ ] Structured triage flow (perguntas esclarecedoras antes de concluir).
+- [x] Structured triage flow (perguntas esclarecedoras antes de concluir).
 - [x] Modos de operação: developer / support / auditor.
 - [ ] Multi-transaction analysis.
 - [x] Gas optimization suggestions.

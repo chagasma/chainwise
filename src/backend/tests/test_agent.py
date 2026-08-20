@@ -50,6 +50,53 @@ def test_build_graph_routes_reverted_tx_to_diagnose_node(monkeypatch: Any) -> No
     assert "diagnos" in calls[0][0].content.lower()
 
 
+def test_build_graph_routes_undecoded_tx_to_clarify_node(monkeypatch: Any) -> None:
+    calls: list[list[Any]] = []
+
+    class _RecordingLLM:
+        def invoke(self, messages: list[Any]) -> AIMessage:
+            calls.append(messages)
+            return AIMessage(content="What ABI or repo should I check?")
+
+    monkeypatch.setattr(graph_module, "get_llm", lambda: _RecordingLLM())
+
+    graph = build_graph(checkpointer=InMemorySaver())
+    result = graph.invoke(
+        {
+            "messages": [HumanMessage(content='{"hash": "0xabc"}')],
+            "reverted": False,
+            "undecoded": True,
+        },
+        config={"configurable": {"thread_id": "0xundecoded"}},
+    )
+
+    assert result["messages"][-1].content == "What ABI or repo should I check?"
+    assert "clarifying question" in calls[0][0].content.lower()
+
+
+def test_build_graph_prefers_diagnose_over_clarify_when_both_apply(monkeypatch: Any) -> None:
+    calls: list[list[Any]] = []
+
+    class _RecordingLLM:
+        def invoke(self, messages: list[Any]) -> AIMessage:
+            calls.append(messages)
+            return AIMessage(content="diagnosed")
+
+    monkeypatch.setattr(graph_module, "get_llm", lambda: _RecordingLLM())
+
+    graph = build_graph(checkpointer=InMemorySaver())
+    graph.invoke(
+        {
+            "messages": [HumanMessage(content='{"hash": "0xabc"}')],
+            "reverted": True,
+            "undecoded": True,
+        },
+        config={"configurable": {"thread_id": "0xboth"}},
+    )
+
+    assert "diagnos" in calls[0][0].content.lower()
+
+
 def test_build_graph_appends_mode_addendum_to_system_prompt(monkeypatch: Any) -> None:
     calls: list[list[Any]] = []
 

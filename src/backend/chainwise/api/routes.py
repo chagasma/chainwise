@@ -123,6 +123,21 @@ def _build_prompt_payload(
     )
 
 
+def _is_undecoded(payload: LLMPromptPayload) -> bool:
+    """True when there was a real call to decode and neither the explorer nor
+    repo grounding managed to decode it.
+
+    Excludes a plain ETH transfer (`raw_input in (None, "0x")`): a bare
+    transfer has nothing to decode because there's no calldata, not because
+    data is missing, so it shouldn't trigger a clarifying question. Single
+    source of truth for the condition, used both to pick the graph's
+    "clarify" branch and to set the response's `needs_clarification` flag —
+    they must always agree.
+    """
+    has_calldata = payload.summary.raw_input not in (None, "0x")
+    return has_calldata and payload.summary.decoded_input is None and payload.grounding is None
+
+
 def _thread_id(tx_hash: str, mode: ExplanationMode, gas_tips: bool) -> str:
     """Isolates the checkpointed conversation per (mode, gas_tips) combination.
 
@@ -148,6 +163,7 @@ def _run_agent(
     initial_state = {
         "messages": [HumanMessage(content=payload.model_dump_json(indent=2))],
         "reverted": payload.summary.status == "reverted",
+        "undecoded": _is_undecoded(payload),
         "mode": mode,
         "gas_tips": gas_tips,
     }
@@ -182,6 +198,7 @@ def explain_transaction(
         grounding=payload.grounding,
         security_findings=payload.security_findings,
         explanation=explanation,
+        needs_clarification=_is_undecoded(payload),
         thread_id=thread_id,
         mode=mode,
         gas_tips=gas_tips,

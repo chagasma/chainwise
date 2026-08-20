@@ -276,3 +276,62 @@ def test_explain_transaction_returns_no_security_findings_for_ordinary_call(
 
     assert response.status_code == 200
     assert response.json()["security_findings"] == []
+
+
+def test_explain_transaction_flags_needs_clarification_when_nothing_decoded(
+    monkeypatch: Any, override_graph: Any
+) -> None:
+    """A real call (non-empty raw_input) that neither the explorer nor grounding decoded."""
+
+    class _UndecodedBlockscoutClient(_FakeBlockscoutClient):
+        def get_transaction(self, _tx_hash: str) -> dict[str, Any]:
+            return {**TX, "raw_input": "0xdeadbeef"}
+
+    monkeypatch.setattr(routes_module, "BlockscoutClient", _UndecodedBlockscoutClient())
+    graph = _FakeGraph("What ABI or repo should I check?")
+    override_graph(graph)
+
+    response = client.get("/tx/0xabc/explain")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["needs_clarification"] is True
+    assert graph.last_state is not None
+    assert graph.last_state["undecoded"] is True
+
+
+def test_explain_transaction_does_not_need_clarification_for_plain_eth_transfer(
+    monkeypatch: Any, override_graph: Any
+) -> None:
+    """TX fixture has no raw_input (a bare ETH transfer) — nothing to decode, not a data gap."""
+    monkeypatch.setattr(routes_module, "BlockscoutClient", _FakeBlockscoutClient())
+    graph = _FakeGraph("This transfers 1000 wei.")
+    override_graph(graph)
+
+    response = client.get("/tx/0xabc/explain")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["needs_clarification"] is False
+    assert graph.last_state is not None
+    assert graph.last_state["undecoded"] is False
+
+
+def test_explain_transaction_does_not_need_clarification_when_decoded(
+    monkeypatch: Any, override_graph: Any
+) -> None:
+    class _DecodedBlockscoutClient(_FakeBlockscoutClient):
+        def get_transaction(self, _tx_hash: str) -> dict[str, Any]:
+            return {**TX, "decoded_input": {"method_call": "transfer(address,uint256)"}}
+
+    monkeypatch.setattr(routes_module, "BlockscoutClient", _DecodedBlockscoutClient())
+    graph = _FakeGraph("This transfers tokens.")
+    override_graph(graph)
+
+    response = client.get("/tx/0xabc/explain")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["needs_clarification"] is False
+    assert graph.last_state is not None
+    assert graph.last_state["undecoded"] is False

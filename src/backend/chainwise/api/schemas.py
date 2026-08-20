@@ -105,6 +105,7 @@ class ExplanationResponse(BaseModel):
     grounding: RepoGroundingResult | None
     security_findings: list[SecurityFinding]
     explanation: str
+    needs_clarification: bool
     thread_id: str
     mode: ExplanationMode
     gas_tips: bool
