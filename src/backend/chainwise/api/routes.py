@@ -147,6 +147,15 @@ def _is_undecoded(payload: LLMPromptPayload) -> bool:
     return has_calldata and payload.summary.decoded_input is None and payload.grounding is None
 
 
+def _mode_suffix(mode: ExplanationMode) -> str:
+    """`""` for DEFAULT_MODE (keeps existing thread ids/checkpoints unaffected), else `:{mode}`.
+
+    Shared by `_thread_id` and `_multi_thread_id` so the two don't quietly
+    drift into different isolation rules.
+    """
+    return "" if mode == DEFAULT_MODE else f":{mode}"
+
+
 def _thread_id(tx_hash: str, mode: ExplanationMode, gas_tips: bool) -> str:
     """Isolates the checkpointed conversation per (mode, gas_tips) combination.
 
@@ -155,7 +164,7 @@ def _thread_id(tx_hash: str, mode: ExplanationMode, gas_tips: bool) -> str:
     combination gets its own thread so, e.g., a support-toned answer never
     lands in an auditor's message history for the same tx.
     """
-    suffix = "" if mode == DEFAULT_MODE else f":{mode}"
+    suffix = _mode_suffix(mode)
     if gas_tips:
         suffix += ":gas"
     return tx_hash + suffix
@@ -230,8 +239,7 @@ def explain_transaction(
 
 def _multi_thread_id(hashes: list[str], mode: ExplanationMode) -> str:
     """Same isolation idea as `_thread_id`, keyed on the whole (sorted, deduped) hash set."""
-    suffix = "" if mode == DEFAULT_MODE else f":{mode}"
-    return "multi:" + "+".join(hashes) + suffix
+    return "multi:" + "+".join(hashes) + _mode_suffix(mode)
 
 
 @router.get("/analyze", response_model=MultiTransactionAnalysisResponse)

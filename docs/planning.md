@@ -145,6 +145,12 @@ testado (unitário + validado ao vivo contra APIs reais) e commitado em `main`.
   duas transações reais da mesma conta (`approve` seguido de `stake`) — `shared_sender` detectado
   corretamente, e o LLM distinguiu bem o fato determinístico ("mesmo sender") da própria leitura
   ("o stake provavelmente usou o approve anterior", rotulada como não-determinística).
+  **7ª revisão de qualidade** (focada nas duas últimas features): 0 achados HIGH. O agent checou
+  explicitamente os 3 pontos de risco que eu pedi — `_route` com 3 flags booleanas, `ExplainState`
+  com 5 campos, tamanho de `routes.py` — e descartou os três como não-problema (dispatch table
+  exigido pelo próprio LangGraph, campos coesos lidos pelas mesmas 2 funções, helpers genuinamente
+  reusados por 2+ rotas cada). Único achado real (MEDIUM, barato): `_thread_id`/`_multi_thread_id`
+  repetiam a mesma lógica de sufixo de modo — extraído `_mode_suffix()` compartilhado.
 - **Bug real achado testando manualmente** (não pelos testes automatizados): a Blockscout às
   vezes manda `revert_reason` como objeto decodificado (erro customizado do Solidity, mesmo shape
   do `decoded_input`), não como string — `TransactionSummary` só aceitava string e 502ava.
@@ -152,7 +158,7 @@ testado (unitário + validado ao vivo contra APIs reais) e commitado em `main`.
   numa API real de vez em quando.
 - **105 testes** (unitários, tudo mockado via `httpx.MockTransport`/fakes — nenhum teste bate em
   rede real), lint (`ruff`) e typecheck (`pyright`) limpos. Rodar com `make check`.
-- **6 revisões de qualidade de código** já passaram por essa base (via skill `code-quality`) —
+- **7 revisões de qualidade de código** já passaram por essa base (via skill `code-quality`) —
   achados corrigidos: deduplicação de erro/network lookup nas rotas, bug real de decode ABI
   vazio, layering de `TokenMetadata`, `GitHubRateLimitedError` sem uso real, e (4ª rodada,
   focada no nó `diagnose` recém-adicionado): `_explain`/`_diagnose` duplicados viraram um
