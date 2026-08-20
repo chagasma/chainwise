@@ -10,6 +10,16 @@ def _nested(d: dict[str, Any] | None, key: str) -> Any | None:
     return (d or {}).get(key)
 
 
+def _revert_reason(raw: Any) -> str | None:
+    """Blockscout sends `revert_reason` as a plain string for a `require`/`revert("msg")`,
+    but as a decoded-object (`{"method_call": "CustomError()", ...}`) for a Solidity custom
+    error — same shape as `decoded_input`. Normalize both to the string the LLM prompt expects.
+    """
+    if raw is None or isinstance(raw, str):
+        return raw
+    return raw.get("method_call") or raw.get("method_id")
+
+
 class GreetingResponse(BaseModel):
     message: str
 
@@ -61,7 +71,7 @@ class TransactionSummary(BaseModel):
             method=tx.get("method"),
             decoded_input=tx.get("decoded_input"),
             raw_input=tx.get("raw_input"),
-            revert_reason=tx.get("revert_reason"),
+            revert_reason=_revert_reason(tx.get("revert_reason")),
             logs=[
                 LogEntry(
                     address=log["address"]["hash"],

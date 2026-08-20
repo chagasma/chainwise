@@ -42,6 +42,26 @@ def test_from_blockscout_maps_reverted_status() -> None:
     assert summary.revert_reason == "insufficient balance"
 
 
+def test_from_blockscout_decodes_custom_error_revert_reason() -> None:
+    """Blockscout sends `revert_reason` as a decoded object (not a string) when the
+    revert used a Solidity custom error (`error RelayFilled();`), same shape as
+    `decoded_input` — seen live on a real mainnet tx during manual testing."""
+    reverted = {
+        **TX,
+        "status": "error",
+        "revert_reason": {
+            "method_call": "RelayFilled()",
+            "method_id": "8f260c60",
+            "parameters": [],
+        },
+    }
+
+    summary = TransactionSummary.from_blockscout(reverted, [], "https://explorer.example")
+
+    assert summary.status == "reverted"
+    assert summary.revert_reason == "RelayFilled()"
+
+
 def test_from_blockscout_handles_contract_creation_without_to() -> None:
     no_to = {**TX, "to": None}
 
