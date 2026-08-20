@@ -3,6 +3,11 @@ from typing import Any, Literal, Self
 from pydantic import BaseModel
 
 
+def _nested(d: dict[str, Any] | None, key: str) -> Any | None:
+    """`(d or {}).get(key)` — a field that's present but sometimes null in Blockscout's JSON."""
+    return (d or {}).get(key)
+
+
 class GreetingResponse(BaseModel):
     message: str
 
@@ -46,17 +51,17 @@ class TransactionSummary(BaseModel):
             block_number=tx.get("block_number"),
             timestamp=tx.get("timestamp"),
             from_address=tx["from"]["hash"],
-            to_address=(tx.get("to") or {}).get("hash"),
+            to_address=_nested(tx.get("to"), "hash"),
             value_wei=tx.get("value", "0"),
             gas_used=tx.get("gas_used"),
-            fee_wei=(tx.get("fee") or {}).get("value"),
+            fee_wei=_nested(tx.get("fee"), "value"),
             method=tx.get("method"),
             decoded_input=tx.get("decoded_input"),
             revert_reason=tx.get("revert_reason"),
             logs=[
                 LogEntry(
                     address=log["address"]["hash"],
-                    event=(log.get("decoded") or {}).get("method_call"),
+                    event=_nested(log.get("decoded"), "method_call"),
                     decoded=log.get("decoded"),
                 )
                 for log in logs
