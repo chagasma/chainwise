@@ -2,6 +2,7 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from chainwise.agent import build_graph, create_checkpointer
 from chainwise.api import router
@@ -27,4 +28,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
 
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
 app.middleware("http")(request_context_middleware)
+# Local dev tool with no auth/session state — the frontend (a different port)
+# needs to call this from the browser, and there's nothing here worth
+# restricting by origin.
+app.add_middleware(
+    CORSMiddleware, allow_origins=["*"], allow_methods=["GET"], allow_headers=["*"]
+)
 app.include_router(router)

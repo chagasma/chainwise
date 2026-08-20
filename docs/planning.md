@@ -7,8 +7,9 @@
 
 ## 0. Status Atual (checkpoint — última atualização: 2026-08-20)
 
-**Backend é o foco atual; frontend fica pra depois.** Tudo abaixo já está implementado,
-testado (unitário + validado ao vivo contra APIs reais) e commitado em `main`.
+**Backend fechado (core + todos os bônus); frontend agora implementado e integrado.** Tudo
+abaixo já está implementado, testado (unitário + validado ao vivo contra APIs reais) e
+commitado em `main`.
 
 ### O que já funciona
 
@@ -155,6 +156,22 @@ testado (unitário + validado ao vivo contra APIs reais) e commitado em `main`.
   exigido pelo próprio LangGraph, campos coesos lidos pelas mesmas 2 funções, helpers genuinamente
   reusados por 2+ rotas cada). Único achado real (MEDIUM, barato): `_thread_id`/`_multi_thread_id`
   repetiam a mesma lógica de sufixo de modo — extraído `_mode_suffix()` compartilhado.
+- **Frontend** (`src/frontend/`, React 19 + Vite + TypeScript + Tailwind v4): consome todas as 4
+  rotas do backend — `getNetwork`/`getTransaction`/`explainTransaction`/`analyzeTransactions` em
+  `lib/api.ts`, tipos espelhando `api/schemas.py`/`models/domain.py` à mão (sem codegen, mesma
+  decisão do projeto de não trazer dependência nova pra isso). `App.tsx` decide `single` vs
+  `multi` pelo número de hashes digitados na `SearchConsole` (1 = `/tx/{hash}/explain`, 2+ =
+  `/analyze`). Todos os 5 bônus têm componente próprio: `ModeSelector` (developer/support/
+  auditor) e toggle de `gasTips` dentro da `SearchConsole`; `needs_clarification` renderizado
+  pelo `ExplanationPanel`; `SecurityFindings`/`SeverityBadge` pros achados de
+  `detect_risk_patterns`; `MultiTxView` pro `/analyze`. Mais `SummaryCard`/`TxTracePath` (a
+  timeline from/call/events), `TokensList`, `GroundingCitation` (cita repo+arquivo quando há
+  fallback de ABI), `ErrorPanel`/`LoadingTrace` pros estados de erro/carregamento. CORS
+  liberado no backend (`main.py`, `CORSMiddleware allow_origins=["*"]`, só `GET`) — ferramenta
+  local sem auth/sessão, nada a restringir por origem. Validado ao vivo: tx da USDC
+  (`transfer` decodificado com ABI do explorer) retornou explicação completa; uma tx pra
+  contrato não verificado corretamente caiu no fluxo `needs_clarification` em vez de
+  inventar explicação.
 - **Bug real achado testando manualmente** (não pelos testes automatizados): a Blockscout às
   vezes manda `revert_reason` como objeto decodificado (erro customizado do Solidity, mesmo shape
   do `decoded_input`), não como string — `TransactionSummary` só aceitava string e 502ava.
@@ -199,8 +216,8 @@ testado (unitário + validado ao vivo contra APIs reais) e commitado em `main`.
    - [x] Structured triage flow — feito, nó `clarify` no grafo. Ver seção "O que já funciona".
    - [x] Multi-transaction analysis — feito, `GET /analyze?hash=..&hash=..`. Ver seção "O que já
      funciona". **Todos os 5 itens de bônus do desafio estão implementados.**
-6. **Frontend mínimo** — só existe um `.gitkeep` em `src/frontend/`. Deixado por último, depois
-   do backend (core + bônus que entrarem) estar fechado.
+6. ~~**Frontend**~~ — feito: React + Vite + TS + Tailwind em `src/frontend/`, integrado às 4
+   rotas do backend, todos os 5 bônus com UI própria. Ver "O que já funciona".
 7. **README + `docs/examples.md`** — setup, config, pelo menos 3 exemplos reais de
    query/output (já temos vários rodados ao longo do desenvolvimento pra reaproveitar, incluindo
    um caso de repo grounding real com `go-ethereum`).
@@ -239,7 +256,7 @@ O projeto será entregue como um repositório localmente executável, com README
 - [x] **Explorer Integration (Blockscout-compatible)**: busca de tx, receipt, logs e ABI via API configurável. `adapters/blockscout.py`.
 - [x] **On-chain Context via RPC**: `eth_call` configurável para enriquecer contexto (`decimals`, `symbol` via `services/enricher.py`; `adapters/rpc.py` também expõe `eth_getCode` genérico).
 - [x] **Smart Contract Repo Grounding**: integração com repositórios GitHub configurados para explicar funções e citar código-fonte. `adapters/github.py` + `services/decoder.py` + `services/repo_grounding.py`, validado ao vivo com `go-ethereum`.
-- [ ] **Interface Simples**: API REST (FastAPI) pronta; frontend web minimalista ainda não iniciado (só `.gitkeep`).
+- [x] **Interface Simples**: API REST (FastAPI) pronta; frontend web (React + Vite + TS) implementado e integrado às 4 rotas.
 - [x] **Config-driven Portability**: toda a configuração centralizada (explorer URL, RPC, repos, estratégia de ABI). Validada trocando de rede sem mudar código (ver seção 0).
 - [x] **Grounded Answers**: toda resposta inclui citações/links para as fontes usadas (`source_url` do explorer + `source_url` do repo quando há grounding).
 - [x] **Graceful Degradation**: o sistema continua funcionando mesmo quando ABI, RPC, explorer ou repo estão indisponíveis, informando claramente o que falta. Validado ao vivo com o explorer da Gnosis Chain fora do ar.
@@ -386,8 +403,12 @@ chainwise/
 │   │   │       └── middleware.py  # Request context (request_id, etc.)
 │   │   └── tests/                 # 1 arquivo de teste por módulo, tudo mockado (httpx.MockTransport)
 │   │
-│   └── frontend/
-│       └── .gitkeep                # Ainda não iniciado — próximo bloco depois do backend
+│   └── frontend/                   # React + Vite + TS + Tailwind v4 (ver seção 0)
+│       ├── src/
+│       │   ├── App.tsx             # single vs multi por nº de hashes; orquestra o Result state
+│       │   ├── components/         # SearchConsole, ModeSelector, SummaryCard, MultiTxView, ...
+│       │   └── lib/api.ts          # client HTTP + tipos espelhando api/schemas.py à mão
+│       └── vite.config.ts
 │
 └── scripts/                        # Ainda não criado
 ```
@@ -484,10 +505,10 @@ chainwise/
 - [x] Nó/branch dedicado de failure diagnostics para transações revertidas — `explain`/`diagnose`
       com edge condicional a partir de `START`.
 
-### Fase 5 — API + Frontend (só API feita)
-- [x] Criar endpoints FastAPI — `GET /`, `GET /network`, `GET /tx/{hash}`, `GET /tx/{hash}/explain`.
-- [ ] Criar frontend minimalista — não iniciado.
-- [ ] Integrar frontend com backend.
+### Fase 5 — API + Frontend ✅
+- [x] Criar endpoints FastAPI — `GET /`, `GET /network`, `GET /tx/{hash}`, `GET /tx/{hash}/explain`, `GET /analyze`.
+- [x] Criar frontend — React + Vite + TS + Tailwind v4, ver seção 0.
+- [x] Integrar frontend com backend — `lib/api.ts` consome as 4 rotas; CORS liberado em `main.py`.
 
 ### Fase 6 — Documentação e Testes (parcial)
 - [ ] Escrever README completo.
@@ -544,7 +565,8 @@ Ordem sugerida pra retomar o trabalho — foco continua 100% backend antes do fr
    seção 9.
 2. ~~**Fechar a validação de portabilidade da Gnosis Chain**~~ — feito em 2026-08-20 (troca de
    `explorer_url` pra `gnosisscan.io`, ver seção 0).
-3. **Frontend mínimo** — interface simples (web ou CLI) consumindo `GET /tx/{hash}/explain`.
+3. ~~**Frontend mínimo**~~ — feito: React + Vite + TS, consumindo todas as 4 rotas incluindo
+   `/analyze`. Ver seção 0.
 4. **README + `docs/examples.md`** — setup, config de rede, 3+ exemplos reais (já rodamos vários
    ao longo do desenvolvimento, inclusive um caso de repo grounding real contra `go-ethereum`
    com token do GitHub — dá pra reaproveitar os outputs).
