@@ -256,9 +256,11 @@ commitado em `main`.
      funciona". **Todos os 5 itens de bônus do desafio estão implementados.**
 6. ~~**Frontend**~~ — feito: React + Vite + TS + Tailwind em `src/frontend/`, integrado às 4
    rotas do backend, todos os 5 bônus com UI própria. Ver "O que já funciona".
-7. **README + `docs/examples.md`** — setup, config, pelo menos 3 exemplos reais de
-   query/output (já temos vários rodados ao longo do desenvolvimento pra reaproveitar, incluindo
-   um caso de repo grounding real com `go-ethereum`).
+7. ~~**README + `docs/examples.md`**~~ — feito: `README.md` com setup, config de rede, tabela de
+   rotas; `docs/examples.md` com 6 exemplos reais (explain simples, triage + follow-up via chat,
+   diagnose de revert, multi-tx, modo auditor, modo support + gas tips), todos rodados ao vivo
+   contra o backend real, não inventados. **Todos os critérios de sucesso da seção 9 estão
+   fechados.**
 
 ### Problemas conhecidos
 
@@ -298,7 +300,7 @@ O projeto será entregue como um repositório localmente executável, com README
 - [x] **Config-driven Portability**: toda a configuração centralizada (explorer URL, RPC, repos, estratégia de ABI). Validada trocando de rede sem mudar código (ver seção 0).
 - [x] **Grounded Answers**: toda resposta inclui citações/links para as fontes usadas (`source_url` do explorer + `source_url` do repo quando há grounding).
 - [x] **Graceful Degradation**: o sistema continua funcionando mesmo quando ABI, RPC, explorer ou repo estão indisponíveis, informando claramente o que falta. Validado ao vivo com o explorer da Gnosis Chain fora do ar.
-- [ ] **README**: setup, configuração e pelo menos 3 exemplos de queries/outputs.
+- [x] **README**: setup, configuração e exemplos de queries/outputs. `README.md` + `docs/examples.md`.
 
 ### Funcionalidades bônus (se der tempo)
 
@@ -548,9 +550,9 @@ chainwise/
 - [x] Criar frontend — React + Vite + TS + Tailwind v4, ver seção 0.
 - [x] Integrar frontend com backend — `lib/api.ts` consome as 4 rotas; CORS liberado em `main.py`.
 
-### Fase 6 — Documentação e Testes (parcial)
-- [ ] Escrever README completo.
-- [ ] Criar `docs/examples.md` com 3+ exemplos.
+### Fase 6 — Documentação e Testes ✅
+- [x] Escrever README completo.
+- [x] Criar `docs/examples.md` com 3+ exemplos — 6 exemplos reais.
 - [x] Adicionar testes unitários — 70 testes, tudo mockado (`httpx.MockTransport`), sem testes de
       integração batendo em rede real (validação real foi feita manualmente, ver seção 0).
 - [x] Revisar config-driven portability com pelo menos 2 redes — Ethereum mainnet, Polygon PoS
@@ -570,10 +572,11 @@ O projeto será considerado pronto para envio quando:
 - [x] A troca de rede é feita apenas editando configuração.
 - [x] Toda resposta inclui fontes/links utilizados.
 - [x] O sistema funciona mesmo com algumas fontes indisponíveis.
-- [ ] O README permite que alguém rode o projeto localmente em poucos minutos — README ainda é
-      o placeholder padrão.
-- [ ] Existem pelo menos 3 exemplos documentados — não escritos em `docs/examples.md` ainda
-      (mas já temos exemplos reais rodados ao longo do desenvolvimento pra reaproveitar).
+- [x] O README permite que alguém rode o projeto localmente em poucos minutos — `README.md`
+      completo, com setup, config de rede, tabela de rotas e comandos de teste.
+- [x] Existem pelo menos 3 exemplos documentados — `docs/examples.md` com 6 exemplos reais
+      (explain simples, triage + follow-up via chat, diagnose de revert, multi-tx, auditor,
+      support + gas tips), todos rodados ao vivo contra o backend real.
 - [x] O código está testado e bem estruturado — 67 testes, 3 rodadas de code-quality review
       já aplicadas.
 
