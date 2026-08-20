@@ -1,7 +1,6 @@
-from pydantic import BaseModel
-
 from chainwise.adapters import RPCClient, RPCError
 from chainwise.config import NetworkConfig
+from chainwise.models import TokenMetadata
 from chainwise.observability import get_logger
 
 logger = get_logger("chainwise.enricher")
@@ -10,27 +9,28 @@ _SYMBOL_SELECTOR = "0x95d89b41"
 _DECIMALS_SELECTOR = "0x313ce567"
 
 
-class TokenMetadata(BaseModel):
-    """ERC-20 metadata for a token seen transferring in the transaction's logs.
-
-    Best-effort: `symbol`/`decimals` are null when the on-chain read call
-    failed or the token doesn't follow the standard ABI.
-    """
-
-    address: str
-    symbol: str | None
-    decimals: int | None
-
-
 def _decode_uint(hex_data: str) -> int:
     return int(hex_data, 16)
 
 
 def _decode_string(hex_data: str) -> str:
-    """Decodes a single ABI-encoded dynamic `string` return value."""
+    """Decodes a single ABI-encoded dynamic `string` return value.
+
+    Bounds-checked rather than trusting a well-formed response: a call to a
+    non-existent contract or one that reverted with no data returns "0x",
+    which Python's slicing wouldn't error on (offset=length=0 -> silently ""),
+    masking a failure as a confirmed-empty symbol. Raising here routes it
+    through the caller's existing except-and-skip instead.
+    """
     data = bytes.fromhex(hex_data.removeprefix("0x"))
+    if len(data) < 64:
+        raise ValueError(f"dynamic string return too short: {len(data)} bytes")
     offset = int.from_bytes(data[0:32], "big")
+    if offset + 32 > len(data):
+        raise ValueError("string offset out of bounds")
     length = int.from_bytes(data[offset : offset + 32], "big")
+    if offset + 32 + length > len(data):
+        raise ValueError("string length out of bounds")
     return data[offset + 32 : offset + 32 + length].decode("utf-8", errors="strict")
 
 

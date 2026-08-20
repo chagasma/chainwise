@@ -2,7 +2,7 @@ from typing import Any, Literal, Self
 
 from pydantic import BaseModel
 
-from chainwise.services.enricher import TokenMetadata
+from chainwise.models import TokenMetadata
 
 
 def _nested(d: dict[str, Any] | None, key: str) -> Any | None:
@@ -70,6 +70,13 @@ class TransactionSummary(BaseModel):
             ],
             source_url=f"{explorer_url.rstrip('/')}/tx/{tx['hash']}",
         )
+
+
+class LLMPromptPayload(BaseModel):
+    """The transaction context sent to the LLM as one JSON blob (see agent/prompts.py)."""
+
+    summary: TransactionSummary
+    tokens: list[TokenMetadata]
 
 
 class ExplanationResponse(BaseModel):

@@ -1,5 +1,3 @@
-import json
-
 from fastapi import APIRouter, Depends, HTTPException, Request
 from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.graph.state import CompiledStateGraph
@@ -7,7 +5,12 @@ from pydantic import ValidationError
 
 from chainwise.adapters import AdapterError, AdapterNotFoundError, BlockscoutClient
 from chainwise.agent import EXPLAIN_SYSTEM_PROMPT
-from chainwise.api.schemas import ExplanationResponse, GreetingResponse, TransactionSummary
+from chainwise.api.schemas import (
+    ExplanationResponse,
+    GreetingResponse,
+    LLMPromptPayload,
+    TransactionSummary,
+)
 from chainwise.config import NetworkConfig, Settings, get_settings, load_network
 from chainwise.observability import get_logger
 from chainwise.services import enrich_tokens
@@ -82,10 +85,7 @@ def explain_transaction(
     }
     tokens = enrich_tokens(transfer_addresses, network)
 
-    prompt_content = json.dumps(
-        {"summary": summary.model_dump(mode="json"), "tokens": [t.model_dump() for t in tokens]},
-        indent=2,
-    )
+    prompt_content = LLMPromptPayload(summary=summary, tokens=tokens).model_dump_json(indent=2)
     initial_state = {
         "messages": [
             SystemMessage(content=EXPLAIN_SYSTEM_PROMPT),
