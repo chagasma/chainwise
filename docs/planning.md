@@ -172,12 +172,50 @@ commitado em `main`.
   (`transfer` decodificado com ABI do explorer) retornou explicação completa; uma tx pra
   contrato não verificado corretamente caiu no fluxo `needs_clarification` em vez de
   inventar explicação.
+- **Conversational follow-ups (`POST /chat`)**: o grafo já era `MessagesState` com checkpointer
+  Postgres por `thread_id` (pensado desde a ADR 0002) — só nunca era invocado uma 2ª vez. Motivado
+  pelo próprio `clarify` (pergunta uma coisa, mas não tinha como o usuário responder): `/chat`
+  recebe `{thread_id, message}`, valida que a thread existe (`graph.get_state(...)`, 404 se não —
+  `Unknown conversation`) e reaproveita `_invoke_agent` sem lógica nova. `agent/prompts.py::
+  FOLLOWUP_ADDENDUM` é aplicado a partir do 2º turno: pede resposta direta (sem repetir a
+  estrutura do 1º turno) e, importante, desbloqueia a regra "nunca especule" do
+  `CLARIFY_SYSTEM_PROMPT` quando o usuário já deu a peça que faltava (ex: colou a ABI) —
+  validado ao vivo com uma ABI inventada numa tx `needs_clarification`: o modelo decodificou e
+  explicou de verdade em vez de repetir "não sei".
+- **2 bugs reais achados testando no frontend de verdade** (não pelos testes automatizados,
+  de novo): (1) a detecção inicial de "é follow-up?" era por contagem de mensagens
+  (`len(state["messages"]) > 1`) — heurística furada, porque `/explain`/`/analyze` reusam um
+  `thread_id` determinístico (mesmo hash+mode+gas_tips = mesma thread), então qualquer reuso
+  daquela thread (um teste meu via curl, ou o usuário clicando "Trace transaction" de novo)
+  enganava a contagem e devolvia uma resposta de chat truncada em vez da explicação completa.
+  Corrigido trocando por uma flag explícita (`state["is_followup"]`), setada só por quem
+  realmente é follow-up (`/chat`), nunca inferida — `_run_agent`/`analyze_transactions` passam
+  `is_followup: False` explicitamente (não omitido) pra sobrescrever qualquer `True` que tenha
+  sobrado de um `/chat` anterior na mesma thread. (2) mesmo com a flag corrigida, repetir
+  `/explain` no mesmo hash seguia acumulando mensagens na thread pra sempre (cada clique = mais
+  uma rodada de payload+resposta no histórico), enviesando a explicação com contexto velho.
+  `api/routes.py::_reset_thread` agora limpa o checkpoint (`checkpointer.delete_thread`) antes de
+  todo `/explain`/`/analyze` — essas rotas são "me dá a explicação do zero", só `/chat` deve
+  acumular histórico de verdade. Validado ao vivo: 4 chamadas de `/explain` seguidas no mesmo
+  hash (com um `/chat` no meio) voltaram todas completas e independentes; conferido no Postgres
+  que os checkpoints da thread não crescem mais sem limite.
+- **Layout do frontend em duas colunas + chat**: `ChatPanel` novo (coluna direita) — mostra a
+  explicação inicial via `ExplanationPanel` (que ganhou um botão de copiar) e um input pra
+  perguntas de acompanhamento, chamando `POST /chat` com o `thread_id` que a resposta inicial já
+  trouxe. Coluna esquerda ficou só com as infos da transação (`SummaryCard`, `SecurityFindings`,
+  `TokensList`, `GroundingCitation`); `MultiTxView` perdeu o `ExplanationPanel` embutido (o chat
+  agora é único e compartilhado entre single/multi-tx). `TxTracePath` redesenhado de blocos
+  horizontais roláveis (cortavam sem aviso numa coluna estreita) pra blocos verticais de 1 linha
+  cada; `SummaryCard` parou de repetir From/Method (já aparecem no trace) e trunca a hash com
+  `shortHash` (tinha um `<a>` sem `truncate` que estourava a largura do card). Brilho de fundo
+  (`index.css`, variáveis `--mx`/`--my`) segue o cursor via um listener de `mousemove` em
+  `App.tsx` — puramente estético, desativado sob `prefers-reduced-motion`.
 - **Bug real achado testando manualmente** (não pelos testes automatizados): a Blockscout às
   vezes manda `revert_reason` como objeto decodificado (erro customizado do Solidity, mesmo shape
   do `decoded_input`), não como string — `TransactionSummary` só aceitava string e 502ava.
   Corrigido em `api/schemas.py::_revert_reason`. Reforça que testes mockados não substituem bater
   numa API real de vez em quando.
-- **105 testes** (unitários, tudo mockado via `httpx.MockTransport`/fakes — nenhum teste bate em
+- **113 testes** (unitários, tudo mockado via `httpx.MockTransport`/fakes — nenhum teste bate em
   rede real), lint (`ruff`) e typecheck (`pyright`) limpos. Rodar com `make check`.
 - **7 revisões de qualidade de código** já passaram por essa base (via skill `code-quality`) —
   achados corrigidos: deduplicação de erro/network lookup nas rotas, bug real de decode ABI
