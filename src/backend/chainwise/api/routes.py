@@ -1,10 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage
 from langgraph.graph.state import CompiledStateGraph
 from pydantic import ValidationError
 
 from chainwise.adapters import AdapterError, AdapterNotFoundError, BlockscoutClient
-from chainwise.agent import EXPLAIN_SYSTEM_PROMPT
 from chainwise.api.schemas import (
     ExplanationResponse,
     GreetingResponse,
@@ -71,14 +70,9 @@ def get_transaction(
     return _get_transaction_summary(tx_hash, network)
 
 
-@router.get("/tx/{tx_hash}/explain", response_model=ExplanationResponse)
-def explain_transaction(
-    tx_hash: str,
-    network: NetworkConfig = Depends(get_network),
-    settings: Settings = Depends(get_settings),
-    graph: CompiledStateGraph = Depends(get_graph),
-) -> ExplanationResponse:
-    summary = _get_transaction_summary(tx_hash, network)
+def _build_prompt_payload(
+    summary: TransactionSummary, network: NetworkConfig, settings: Settings
+) -> LLMPromptPayload:
     transfer_addresses = {
         log.address
         for log in summary.logs
@@ -86,20 +80,19 @@ def explain_transaction(
     }
     tokens = enrich_tokens(transfer_addresses, network)
 
-    # abi_strategy fallback: only worth searching repos when the explorer
-    # itself had no ABI to decode the call with.
+    # Repo grounding only runs when the network's abi_strategy allows it and
+    # the explorer itself had no ABI to decode the call with.
     grounding = None
-    if summary.decoded_input is None:
+    if summary.decoded_input is None and "repo" in network.abi_strategy:
         grounding = ground_transaction(summary.raw_input, network, settings.github_token)
 
-    prompt_content = LLMPromptPayload(
-        summary=summary, tokens=tokens, grounding=grounding
-    ).model_dump_json(indent=2)
+    return LLMPromptPayload(summary=summary, tokens=tokens, grounding=grounding)
+
+
+def _run_agent(graph: CompiledStateGraph, payload: LLMPromptPayload, tx_hash: str) -> str:
     initial_state = {
-        "messages": [
-            SystemMessage(content=EXPLAIN_SYSTEM_PROMPT),
-            HumanMessage(content=prompt_content),
-        ]
+        "messages": [HumanMessage(content=payload.model_dump_json(indent=2))],
+        "reverted": payload.summary.status == "reverted",
     }
     try:
         result = graph.invoke(initial_state, config={"configurable": {"thread_id": tx_hash}})
@@ -111,12 +104,23 @@ def explain_transaction(
         # isn't mistaken for a provider outage when reading logs later.
         logger.error("llm_explanation_failed", exc_info=exc, extra={"tx_hash": tx_hash})
         raise HTTPException(status_code=502, detail=f"LLM explanation unavailable: {exc}") from exc
+    return result["messages"][-1].content
 
-    explanation = result["messages"][-1].content
+
+@router.get("/tx/{tx_hash}/explain", response_model=ExplanationResponse)
+def explain_transaction(
+    tx_hash: str,
+    network: NetworkConfig = Depends(get_network),
+    settings: Settings = Depends(get_settings),
+    graph: CompiledStateGraph = Depends(get_graph),
+) -> ExplanationResponse:
+    summary = _get_transaction_summary(tx_hash, network)
+    payload = _build_prompt_payload(summary, network, settings)
+    explanation = _run_agent(graph, payload, tx_hash)
     return ExplanationResponse(
-        summary=summary,
-        tokens=tokens,
-        grounding=grounding,
+        summary=payload.summary,
+        tokens=payload.tokens,
+        grounding=payload.grounding,
         explanation=explanation,
         thread_id=tx_hash,
     )

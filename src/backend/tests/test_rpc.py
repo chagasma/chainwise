@@ -20,15 +20,6 @@ def test_eth_call_returns_raw_result() -> None:
         assert client.eth_call(CONTRACT, "0x313ce567") == "0x06"
 
 
-def test_get_code_returns_raw_bytecode() -> None:
-    transport = httpx.MockTransport(
-        lambda request: httpx.Response(200, json={"jsonrpc": "2.0", "id": 1, "result": "0x6080"})
-    )
-
-    with _client(transport) as client:
-        assert client.get_code(CONTRACT) == "0x6080"
-
-
 def test_eth_call_raises_on_jsonrpc_error() -> None:
     error_body = {
         "jsonrpc": "2.0",

@@ -1,8 +1,8 @@
-from types import TracebackType
-from typing import Any, Self
+from typing import Any
 
 import httpx
 
+from chainwise.adapters.base import HttpAdapter
 from chainwise.adapters.errors import AdapterError, AdapterNotFoundError
 
 
@@ -17,7 +17,7 @@ class TransactionNotFoundError(AdapterNotFoundError, BlockscoutError):
         super().__init__(f"Transaction {tx_hash} not found on this network's explorer")
 
 
-class BlockscoutClient:
+class BlockscoutClient(HttpAdapter):
     """Thin client over the Blockscout v2 API (transaction, receipt, logs).
 
     Methods return the explorer's raw JSON as `dict[str, Any]` — shape
@@ -57,17 +57,3 @@ class BlockscoutClient:
                 f"Explorer returned {response.status_code} for {tx_hash}"
             ) from exc
         return response.json()
-
-    def close(self) -> None:
-        self._client.close()
-
-    def __enter__(self) -> Self:
-        return self
-
-    def __exit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc_value: BaseException | None,
-        traceback: TracebackType | None,
-    ) -> None:
-        self.close()

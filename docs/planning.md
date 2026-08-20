@@ -44,18 +44,25 @@ testado (unitário + validado ao vivo contra APIs reais) e commitado em `main`.
   ADR 0001).
 - **67 testes** (unitários, tudo mockado via `httpx.MockTransport` — nenhum teste bate em rede
   real), lint (`ruff`) e typecheck (`pyright`) limpos. Rodar com `make check`.
-- **3 revisões de qualidade de código** já passaram por essa base (via skill `code-quality`) —
+- **4 revisões de qualidade de código** já passaram por essa base (via skill `code-quality`) —
   achados corrigidos: deduplicação de erro/network lookup nas rotas, bug real de decode ABI
-  vazio, layering de `TokenMetadata`, `GitHubRateLimitedError` sem uso real.
+  vazio, layering de `TokenMetadata`, `GitHubRateLimitedError` sem uso real, e (4ª rodada,
+  focada no nó `diagnose` recém-adicionado): `_explain`/`_diagnose` duplicados viraram um
+  `_run_llm_node` único com `functools.partial`; `close`/`__enter__`/`__exit__` idênticos nos 3
+  adapters viraram `adapters/base.py::HttpAdapter`; o contrato do payload JSON duplicado nos dois
+  system prompts virou `_PAYLOAD_CONTRACT` compartilhado em `agent/prompts.py`;
+  `explain_transaction` em `api/routes.py` foi quebrado em `_build_prompt_payload`/`_run_agent`;
+  `NetworkConfig.abi_strategy` (que existia mas nunca era lido) agora é checado de fato antes de
+  chamar `ground_transaction`; `RPCClient.get_code` (código morto, sem chamador) foi removido.
 
 ### O que falta (nessa ordem sugerida)
 
-1. **Failure diagnostics estruturado** — hoje o LLM só recebe `revert_reason` cru dentro do
-   summary e é instruído a comentar sobre ele no prompt, mas não existe um passo dedicado de
-   diagnóstico (causa provável + próximos passos), como pede o requisito do desafio. Dá pra
-   fazer como um segundo nó no grafo LangGraph, ramificando quando `status == "reverted"` — é
-   o tipo de branch que o ADR 0002 já previu quando justificou usar LangGraph em vez de uma
-   chamada única ao LLM.
+1. ~~**Failure diagnostics estruturado**~~ — feito: `agent/graph.py` agora tem 2 nós
+   (`explain`/`diagnose`) com edge condicional a partir de `START`, ramificando em
+   `state["reverted"]` (setado em `routes.py` a partir de `summary.status == "reverted"`).
+   `agent/prompts.py::DIAGNOSE_SYSTEM_PROMPT` estrutura a resposta em o que foi tentado / causa
+   provável / próximos passos, deixando claro quando a causa é inferência (sem `revert_reason`
+   do explorer) em vez de fato. Testado em `tests/test_agent.py`.
 2. **Fechar o teste de portabilidade da Gnosis Chain** — o RPC já foi validado, só falta o
    explorer voltar ao ar (ou achar uma URL alternativa) pra rodar o `/explain` completo nessa
    rede também.
@@ -103,7 +110,7 @@ O projeto será entregue como um repositório localmente executável, com README
 ### Funcionalidades obrigatórias
 
 - [x] **Transaction Explainer**: resumo de transação a partir do hash (chamadas, transfers, eventos). `GET /tx/{hash}/explain`, validado com txs reais em 2 redes.
-- [ ] **Failure Diagnostics**: diagnóstico de transações revertidas/falhas com causas prováveis e próximos passos. *Parcial* — `revert_reason` já chega ao LLM e ele é instruído a comentar sobre ele, mas não existe um passo/nó dedicado de diagnóstico estruturado.
+- [x] **Failure Diagnostics**: diagnóstico de transações revertidas/falhas com causas prováveis e próximos passos. Nó `diagnose` dedicado em `agent/graph.py`, ramificado por `reverted` no state.
 - [x] **Explorer Integration (Blockscout-compatible)**: busca de tx, receipt, logs e ABI via API configurável. `adapters/blockscout.py`.
 - [x] **On-chain Context via RPC**: `eth_call` configurável para enriquecer contexto (`decimals`, `symbol` via `services/enricher.py`; `adapters/rpc.py` também expõe `eth_getCode` genérico).
 - [x] **Smart Contract Repo Grounding**: integração com repositórios GitHub configurados para explicar funções e citar código-fonte. `adapters/github.py` + `services/decoder.py` + `services/repo_grounding.py`, validado ao vivo com `go-ethereum`.
@@ -340,13 +347,14 @@ chainwise/
 - [x] Montagem de prompt e chamada LLM — não virou `explainer.py` separado, ficou em
       `api/routes.py` (`LLMPromptPayload` + `graph.invoke`).
 
-### Fase 4 — Pipeline/Agent ✅ (exceto diagnóstico de falha estruturado)
+### Fase 4 — Pipeline/Agent ✅
 - [x] Implementar o grafo orquestrando o fluxo — `agent/graph.py` (LangGraph, não um `workflow.py`
       customizado — decisão revista, ver ADR 0002).
 - [x] Implementar `prompts.py` com regras claras (grounding vs explorer, tokens, revert).
 - [x] Adicionar graceful degradation em cada etapa — validado ao vivo (explorer fora do ar,
       GitHub sem token, RPC de token não-padrão).
-- [ ] Nó/branch dedicado de failure diagnostics para transações revertidas — **próximo passo**.
+- [x] Nó/branch dedicado de failure diagnostics para transações revertidas — `explain`/`diagnose`
+      com edge condicional a partir de `START`.
 
 ### Fase 5 — API + Frontend (só API feita)
 - [x] Criar endpoints FastAPI — `GET /`, `GET /network`, `GET /tx/{hash}`, `GET /tx/{hash}/explain`.
@@ -370,8 +378,8 @@ chainwise/
 O projeto será considerado pronto para envio quando:
 
 - [x] Uma transação real pode ser explicada corretamente em linguagem natural.
-- [ ] Transações revertidas recebem diagnóstico útil — hoje recebem *menção* ao revert_reason,
-      não um diagnóstico estruturado (causa provável + próximos passos).
+- [x] Transações revertidas recebem diagnóstico útil — nó dedicado com causa provável +
+      próximos passos, não mais só menção ao revert_reason.
 - [x] A troca de rede é feita apenas editando configuração.
 - [x] Toda resposta inclui fontes/links utilizados.
 - [x] O sistema funciona mesmo com algumas fontes indisponíveis.

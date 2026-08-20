@@ -2,7 +2,7 @@ from typing import Any
 
 import chainwise.agent.graph as graph_module
 from chainwise.agent.graph import build_graph
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.memory import InMemorySaver
 
@@ -18,15 +18,36 @@ def test_build_graph_runs_explain_node(monkeypatch: Any) -> None:
     graph = build_graph(checkpointer=InMemorySaver())
     result = graph.invoke(
         {
-            "messages": [
-                SystemMessage(content="You explain transactions."),
-                HumanMessage(content='{"hash": "0xabc"}'),
-            ]
+            "messages": [HumanMessage(content='{"hash": "0xabc"}')],
+            "reverted": False,
         },
         config={"configurable": {"thread_id": "0xabc"}},
     )
 
     assert result["messages"][-1].content == "This transaction transferred 10 tokens."
+
+
+def test_build_graph_routes_reverted_tx_to_diagnose_node(monkeypatch: Any) -> None:
+    calls: list[list[Any]] = []
+
+    class _RecordingLLM:
+        def invoke(self, messages: list[Any]) -> AIMessage:
+            calls.append(messages)
+            return AIMessage(content="Likely root cause: insufficient balance.")
+
+    monkeypatch.setattr(graph_module, "get_llm", lambda: _RecordingLLM())
+
+    graph = build_graph(checkpointer=InMemorySaver())
+    result = graph.invoke(
+        {
+            "messages": [HumanMessage(content='{"hash": "0xabc"}')],
+            "reverted": True,
+        },
+        config={"configurable": {"thread_id": "0xreverted"}},
+    )
+
+    assert result["messages"][-1].content == "Likely root cause: insufficient balance."
+    assert "diagnos" in calls[0][0].content.lower()
 
 
 def test_build_graph_persists_state_across_calls_with_same_thread(monkeypatch: Any) -> None:

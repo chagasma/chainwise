@@ -1,8 +1,8 @@
-from types import TracebackType
-from typing import Any, Self
+from typing import Any
 
 import httpx
 
+from chainwise.adapters.base import HttpAdapter
 from chainwise.adapters.errors import AdapterError
 
 
@@ -10,8 +10,8 @@ class RPCError(AdapterError):
     """Raised when the RPC endpoint can't be reached or returns a JSON-RPC error."""
 
 
-class RPCClient:
-    """Thin client over a network's JSON-RPC endpoint (eth_call, eth_getCode).
+class RPCClient(HttpAdapter):
+    """Thin client over a network's JSON-RPC endpoint (eth_call).
 
     Methods return raw hex strings — ABI encoding of call data and decoding
     of results is the caller's job (mirrors BlockscoutClient: adapters stay
@@ -32,10 +32,6 @@ class RPCClient:
         """Read-only contract call. `data` is the ABI-encoded selector+args hex string."""
         return self._request("eth_call", [{"to": to, "data": data}, block])
 
-    def get_code(self, address: str, block: str = "latest") -> str:
-        """Returns the deployed bytecode at `address` ("0x" for an EOA/undeployed address)."""
-        return self._request("eth_getCode", [address, block])
-
     def _request(self, method: str, params: list[Any]) -> str:
         payload = {"jsonrpc": "2.0", "method": method, "params": params, "id": self._next_id}
         self._next_id += 1
@@ -48,17 +44,3 @@ class RPCClient:
         if "error" in body:
             raise RPCError(f"RPC {method} failed: {body['error'].get('message', body['error'])}")
         return body["result"]
-
-    def close(self) -> None:
-        self._client.close()
-
-    def __enter__(self) -> Self:
-        return self
-
-    def __exit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc_value: BaseException | None,
-        traceback: TracebackType | None,
-    ) -> None:
-        self.close()

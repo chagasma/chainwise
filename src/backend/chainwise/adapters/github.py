@@ -1,9 +1,9 @@
 import base64
-from types import TracebackType
-from typing import Any, Self
+from typing import Any
 
 import httpx
 
+from chainwise.adapters.base import HttpAdapter
 from chainwise.adapters.errors import AdapterError, AdapterNotFoundError
 
 
@@ -28,7 +28,7 @@ class GitHubRateLimitedError(GitHubError):
     """
 
 
-class GitHubClient:
+class GitHubClient(HttpAdapter):
     """Thin client over the GitHub REST API (code search, file contents).
 
     Methods return the API's parsed JSON (or decoded file text) as-is —
@@ -85,17 +85,3 @@ class GitHubClient:
         except httpx.HTTPStatusError as exc:
             raise GitHubError(f"GitHub returned {response.status_code} for {path}") from exc
         return response.json()
-
-    def close(self) -> None:
-        self._client.close()
-
-    def __enter__(self) -> Self:
-        return self
-
-    def __exit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc_value: BaseException | None,
-        traceback: TracebackType | None,
-    ) -> None:
-        self.close()
