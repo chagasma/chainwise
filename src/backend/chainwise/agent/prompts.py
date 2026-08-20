@@ -74,3 +74,33 @@ Rules:
   couldn't be decoded, so root cause is necessarily speculative — don't \
   present a guess as certain.
 """
+
+# Appended to EXPLAIN/DIAGNOSE_SYSTEM_PROMPT for the audience the caller asked
+# for (?mode=... on /tx/{hash}/explain). "developer" is the base prompt above
+# as-is, so it has no addendum here.
+MODE_ADDENDA: dict[str, str] = {
+    "developer": "",
+    "support": """
+
+Audience: a support agent relaying this to a non-technical end user, not a \
+developer. Avoid jargon (ABI, calldata, selector, decoded_input, wei) — \
+describe the action in plain terms ("sent 12.5 USDC", "approved a contract \
+to spend a token", "the transaction failed"). Skip method signatures and \
+hex data unless the user would need to quote them to support. Keep it \
+short: a few sentences, not a technical breakdown. Still cite the \
+source_url so the agent can hand the user a link.\
+""",
+    "auditor": """
+
+Audience: a security auditor reviewing this transaction. In addition to \
+explaining what happened, explicitly call out anything security-relevant: \
+ownership/admin changes, permission or role grants, token approvals \
+(especially unlimited/max-uint approvals), delegatecall or proxy upgrade \
+patterns, and any function name suggesting privileged access (e.g. \
+"setOwner", "upgradeTo", "withdraw" by a non-obvious caller). If none of \
+these patterns are present in the decoded data, say so explicitly rather \
+than omitting the section — an auditor needs to know the check was made, \
+not just get silence. Never call something a vulnerability without citing \
+the specific field (method/parameter/event) that supports it.\
+""",
+}

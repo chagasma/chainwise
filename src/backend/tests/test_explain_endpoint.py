@@ -53,9 +53,13 @@ class _FakeGraph:
     def __init__(self, response: str) -> None:
         self._response = response
         self.invoke_calls = 0
+        self.last_state: dict[str, Any] | None = None
+        self.last_config: dict[str, Any] | None = None
 
-    def invoke(self, _state: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
+    def invoke(self, state: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
         self.invoke_calls += 1
+        self.last_state = state
+        self.last_config = config
         return {"messages": [AIMessage(content=self._response)]}
 
 
@@ -86,6 +90,50 @@ def test_explain_transaction_returns_grounded_explanation(
     assert body["explanation"] == "This transfer moved 1000 wei from 0xfrom to 0xto."
     assert body["summary"]["hash"] == "0xabc"
     assert body["thread_id"] == "0xabc"
+    assert body["mode"] == "developer"
+
+
+def test_explain_transaction_defaults_to_developer_mode(
+    monkeypatch: Any, override_graph: Any
+) -> None:
+    monkeypatch.setattr(routes_module, "BlockscoutClient", _FakeBlockscoutClient())
+    graph = _FakeGraph("explained")
+    override_graph(graph)
+
+    client.get("/tx/0xabc/explain")
+
+    assert graph.last_state is not None
+    assert graph.last_state["mode"] == "developer"
+
+
+def test_explain_transaction_passes_mode_and_isolates_thread_id(
+    monkeypatch: Any, override_graph: Any
+) -> None:
+    monkeypatch.setattr(routes_module, "BlockscoutClient", _FakeBlockscoutClient())
+    graph = _FakeGraph("explained for an auditor")
+    override_graph(graph)
+
+    response = client.get("/tx/0xabc/explain?mode=auditor")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["mode"] == "auditor"
+    assert body["thread_id"] == "0xabc:auditor"
+    assert graph.last_state is not None
+    assert graph.last_state["mode"] == "auditor"
+    assert graph.last_config is not None
+    assert graph.last_config["configurable"]["thread_id"] == "0xabc:auditor"
+
+
+def test_explain_transaction_rejects_unknown_mode(
+    monkeypatch: Any, override_graph: Any
+) -> None:
+    monkeypatch.setattr(routes_module, "BlockscoutClient", _FakeBlockscoutClient())
+    override_graph(_FakeGraph("should never be used"))
+
+    response = client.get("/tx/0xabc/explain?mode=hacker")
+
+    assert response.status_code == 422
 
 
 def test_explain_transaction_returns_502_when_llm_fails(

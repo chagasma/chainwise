@@ -4,6 +4,8 @@ from pydantic import BaseModel
 
 from chainwise.models import RepoGroundingResult, TokenMetadata
 
+ExplanationMode = Literal["developer", "support", "auditor"]
+
 
 def _nested(d: dict[str, Any] | None, key: str) -> Any | None:
     """`(d or {}).get(key)` — a field that's present but sometimes null in Blockscout's JSON."""
@@ -100,3 +102,4 @@ class ExplanationResponse(BaseModel):
     grounding: RepoGroundingResult | None
     explanation: str
     thread_id: str
+    mode: ExplanationMode

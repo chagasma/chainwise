@@ -58,7 +58,22 @@ testado (unitário + validado ao vivo contra APIs reais) e commitado em `main`.
   Postgres no host é configurável via `CHAINWISE_PG_PORT` (default `5432`) pra não colidir com
   outro Postgres local — validei ao vivo com `CHAINWISE_PG_PORT=5433 docker compose up`
   (`/` e `/network` respondendo, checkpointer conectando via nome de serviço).
-- **70 testes** (unitários, tudo mockado via `httpx.MockTransport`/fakes — nenhum teste bate em
+- **Modos developer/support/auditor** (`?mode=` em `/tx/{hash}/explain`, default `developer`):
+  não é um branch novo no grafo — `MODE_ADDENDA` em `agent/prompts.py` é só texto extra
+  concatenado ao prompt (`explain`/`diagnose`) já escolhido por `reverted`, injetado em
+  `_run_llm_node` a partir de `state["mode"]`. `support` tira jargão técnico; `auditor` pede pra
+  sinalizar explicitamente padrões sensíveis (approvals, ownership/admin, delegatecall/proxy) e
+  dizer quando nenhum foi encontrado, em vez de simplesmente omitir a seção. Cada modo não-padrão
+  isola sua própria conversa no checkpointer (`thread_id = f"{tx_hash}:{mode}"`) pra não misturar
+  histórico com o modo `developer` (que mantém `thread_id == tx_hash` pra não quebrar checkpoints
+  existentes). Validado ao vivo nos 3 modos contra a mesma tx real — `auditor` de fato sinalizou o
+  padrão `execute(bytes)` como sensível e disse explicitamente que não achou troca de ownership.
+- **Bug real achado testando manualmente** (não pelos testes automatizados): a Blockscout às
+  vezes manda `revert_reason` como objeto decodificado (erro customizado do Solidity, mesmo shape
+  do `decoded_input`), não como string — `TransactionSummary` só aceitava string e 502ava.
+  Corrigido em `api/schemas.py::_revert_reason`. Reforça que testes mockados não substituem bater
+  numa API real de vez em quando.
+- **76 testes** (unitários, tudo mockado via `httpx.MockTransport`/fakes — nenhum teste bate em
   rede real), lint (`ruff`) e typecheck (`pyright`) limpos. Rodar com `make check`.
 - **4 revisões de qualidade de código** já passaram por essa base (via skill `code-quality`) —
   achados corrigidos: deduplicação de erro/network lookup nas rotas, bug real de decode ABI
@@ -87,9 +102,15 @@ testado (unitário + validado ao vivo contra APIs reais) e commitado em `main`.
 4. **Gnosis Chain** — reconferido em 2026-08-20: RPC ok, explorer (`gnosis.blockscout.com`)
    continua redirecionando (301) pra `gnosisscan.io`, não Blockscout-compatible. Segue bloqueado
    por serviço externo, não por código nosso.
-5. **Bônus** (em andamento, um de cada vez): structured triage flow, modos
-   developer/support/auditor, multi-transaction analysis, gas optimization suggestions, security
-   vulnerability detection.
+5. **Bônus** (em andamento, um de cada vez):
+   - [x] Modos developer/support/auditor — feito (`?mode=` em `/tx/{hash}/explain`). Ver seção
+     "O que já funciona".
+   - [ ] Structured triage flow (perguntas esclarecedoras antes de concluir).
+   - [ ] Multi-transaction analysis.
+   - [ ] Gas optimization suggestions.
+   - [ ] Security vulnerability detection baseada em padrões conhecidos — parcialmente coberto
+     pelo modo `auditor` acima (sinaliza approvals/ownership/delegatecall inline na explicação),
+     mas ainda não é uma feature dedicada com sua própria detecção estruturada.
 6. **Frontend mínimo** — só existe um `.gitkeep` em `src/frontend/`. Deixado por último, depois
    do backend (core + bônus que entrarem) estar fechado.
 7. **README + `docs/examples.md`** — setup, config, pelo menos 3 exemplos reais de
@@ -144,10 +165,10 @@ O projeto será entregue como um repositório localmente executável, com README
 ### Funcionalidades bônus (se der tempo)
 
 - [ ] Structured triage flow (perguntas esclarecedoras antes de concluir).
-- [ ] Modos de operação: developer / support / auditor.
+- [x] Modos de operação: developer / support / auditor.
 - [ ] Multi-transaction analysis.
 - [ ] Gas optimization suggestions.
-- [ ] Security vulnerability detection baseada em padrões conhecidos.
+- [ ] Security vulnerability detection baseada em padrões conhecidos (parcial via modo `auditor`).
 
 ---
 
@@ -445,10 +466,10 @@ Ordem sugerida pra retomar o trabalho — foco continua 100% backend antes do fr
 4. **README + `docs/examples.md`** — setup, config de rede, 3+ exemplos reais (já rodamos vários
    ao longo do desenvolvimento, inclusive um caso de repo grounding real contra `go-ethereum`
    com token do GitHub — dá pra reaproveitar os outputs).
-5. **Bônus, se sobrar tempo**: structured triage flow, modos developer/support/auditor,
-   multi-transaction analysis, gas optimization, security vulnerability detection — nenhum
-   iniciado ainda, todos ficam mais fáceis depois do nó de failure diagnostics existir (mesmo
-   padrão de branch no grafo).
+5. **Bônus, um de cada vez**: modos developer/support/auditor feito; structured triage flow,
+   multi-transaction analysis, gas optimization, security vulnerability detection (dedicada, além
+   do que o modo `auditor` já sinaliza inline) seguem. Ver seção 0 pro estado real e atualizado —
+   esta seção é o guia de continuidade original, mantido só como histórico da priorização inicial.
 
 Pra retomar rápido numa sessão nova: leia a seção 0 (status atual) primeiro, depois `git log
 --oneline` pra ver a ordem real dos commits e suas mensagens (elas documentam a motivação de

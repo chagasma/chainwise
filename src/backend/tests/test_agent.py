@@ -50,6 +50,51 @@ def test_build_graph_routes_reverted_tx_to_diagnose_node(monkeypatch: Any) -> No
     assert "diagnos" in calls[0][0].content.lower()
 
 
+def test_build_graph_appends_mode_addendum_to_system_prompt(monkeypatch: Any) -> None:
+    calls: list[list[Any]] = []
+
+    class _RecordingLLM:
+        def invoke(self, messages: list[Any]) -> AIMessage:
+            calls.append(messages)
+            return AIMessage(content="explained for support")
+
+    monkeypatch.setattr(graph_module, "get_llm", lambda: _RecordingLLM())
+
+    graph = build_graph(checkpointer=InMemorySaver())
+    graph.invoke(
+        {
+            "messages": [HumanMessage(content='{"hash": "0xabc"}')],
+            "reverted": False,
+            "mode": "support",
+        },
+        config={"configurable": {"thread_id": "0xabc:support"}},
+    )
+
+    system_prompt = calls[0][0].content
+    assert "non-technical end user" in system_prompt
+
+
+def test_build_graph_defaults_to_developer_mode_when_unset(monkeypatch: Any) -> None:
+    calls: list[list[Any]] = []
+
+    class _RecordingLLM:
+        def invoke(self, messages: list[Any]) -> AIMessage:
+            calls.append(messages)
+            return AIMessage(content="explained")
+
+    monkeypatch.setattr(graph_module, "get_llm", lambda: _RecordingLLM())
+
+    graph = build_graph(checkpointer=InMemorySaver())
+    graph.invoke(
+        {"messages": [HumanMessage(content='{"hash": "0xabc"}')], "reverted": False},
+        config={"configurable": {"thread_id": "0xabc"}},
+    )
+
+    system_prompt = calls[0][0].content
+    assert "non-technical end user" not in system_prompt
+    assert "security auditor" not in system_prompt
+
+
 def test_build_graph_persists_state_across_calls_with_same_thread(monkeypatch: Any) -> None:
     monkeypatch.setattr(graph_module, "get_llm", lambda: _FakeLLM())
     checkpointer = InMemorySaver()

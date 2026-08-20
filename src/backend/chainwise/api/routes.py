@@ -1,10 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from langchain_core.messages import HumanMessage
 from langgraph.graph.state import CompiledStateGraph
 from pydantic import ValidationError
 
 from chainwise.adapters import AdapterError, AdapterNotFoundError, BlockscoutClient
 from chainwise.api.schemas import (
+    ExplanationMode,
     ExplanationResponse,
     GreetingResponse,
     LLMPromptPayload,
@@ -91,13 +92,21 @@ def _build_prompt_payload(
     return LLMPromptPayload(summary=summary, tokens=tokens, grounding=grounding)
 
 
-def _run_agent(graph: CompiledStateGraph, payload: LLMPromptPayload, tx_hash: str) -> str:
+def _run_agent(
+    graph: CompiledStateGraph, payload: LLMPromptPayload, tx_hash: str, mode: ExplanationMode
+) -> tuple[str, str]:
+    # Isolate the checkpointed conversation per mode too: same thread_id for
+    # the default "developer" mode keeps existing checkpoints/tests valid,
+    # other modes get their own thread so a support-toned answer never lands
+    # in an auditor's message history for the same tx.
+    thread_id = tx_hash if mode == "developer" else f"{tx_hash}:{mode}"
     initial_state = {
         "messages": [HumanMessage(content=payload.model_dump_json(indent=2))],
         "reverted": payload.summary.status == "reverted",
+        "mode": mode,
     }
     try:
-        result = graph.invoke(initial_state, config={"configurable": {"thread_id": tx_hash}})
+        result = graph.invoke(initial_state, config={"configurable": {"thread_id": thread_id}})
     except Exception as exc:
         # Provider SDKs raise a wide variety of exception types (connection,
         # rate limit, auth, malformed response, ...) — any of them must
@@ -106,23 +115,25 @@ def _run_agent(graph: CompiledStateGraph, payload: LLMPromptPayload, tx_hash: st
         # isn't mistaken for a provider outage when reading logs later.
         logger.error("llm_explanation_failed", exc_info=exc, extra={"tx_hash": tx_hash})
         raise HTTPException(status_code=502, detail=f"LLM explanation unavailable: {exc}") from exc
-    return result["messages"][-1].content
+    return result["messages"][-1].content, thread_id
 
 
 @router.get("/tx/{tx_hash}/explain", response_model=ExplanationResponse)
 def explain_transaction(
     tx_hash: str,
+    mode: ExplanationMode = Query("developer", description="Audience for the explanation."),
     network: NetworkConfig = Depends(get_network),
     settings: Settings = Depends(get_settings),
     graph: CompiledStateGraph = Depends(get_graph),
 ) -> ExplanationResponse:
     summary = _get_transaction_summary(tx_hash, network)
     payload = _build_prompt_payload(summary, network, settings)
-    explanation = _run_agent(graph, payload, tx_hash)
+    explanation, thread_id = _run_agent(graph, payload, tx_hash, mode)
     return ExplanationResponse(
         summary=payload.summary,
         tokens=payload.tokens,
         grounding=payload.grounding,
         explanation=explanation,
-        thread_id=tx_hash,
+        thread_id=thread_id,
+        mode=mode,
     )
