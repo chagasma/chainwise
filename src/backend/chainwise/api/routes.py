@@ -1,11 +1,14 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from langchain_core.messages import HumanMessage
+from langchain_core.runnables import RunnableConfig
 from langgraph.graph.state import CompiledStateGraph
 from pydantic import ValidationError
 
 from chainwise.adapters import AdapterError, AdapterNotFoundError, BlockscoutClient
 from chainwise.agent.graph import ExplainState, ExplainStateExtra
 from chainwise.api.schemas import (
+    ChatRequest,
+    ChatResponse,
     ExplanationMode,
     ExplanationResponse,
     GreetingResponse,
@@ -148,6 +151,22 @@ def _thread_id(tx_hash: str, mode: ExplanationMode, gas_tips: bool) -> str:
     return tx_hash + suffix
 
 
+def _reset_thread(graph: CompiledStateGraph, thread_id: str) -> None:
+    """Wipes any prior checkpoint for `thread_id` before an /explain or /analyze
+    call. Those two routes reuse a deterministic thread_id (same hash+mode+
+    gas_tips = same thread) so a follow-up /chat conversation is resumable —
+    but that means, without this, a second /explain call on the same thread
+    would keep appending onto the prior conversation forever, biasing (or,
+    pre-`is_followup`-flag, outright breaking) the answer with leftover
+    context. /explain and /analyze are "give me a fresh explanation" calls;
+    only /chat is meant to build on history. `getattr` guards against the
+    plain stub graphs used in tests, which have no real checkpointer.
+    """
+    checkpointer = getattr(graph, "checkpointer", None)
+    if checkpointer is not None:
+        checkpointer.delete_thread(thread_id)
+
+
 def _invoke_agent(
     graph: CompiledStateGraph, content: str, thread_id: str, state_extra: ExplainStateExtra
 ) -> str:
@@ -177,7 +196,13 @@ def _run_agent(
         "undecoded": _is_undecoded(payload),
         "mode": mode,
         "gas_tips": gas_tips,
+        # Explicit, not omitted: thread_id is deterministic (same hash+mode+
+        # gas_tips reuses the same thread), so a stale True from an earlier
+        # /chat call on this same thread must be overwritten here, not left
+        # for the checkpointer to carry forward.
+        "is_followup": False,
     }
+    _reset_thread(graph, thread_id)
     explanation = _invoke_agent(graph, payload.model_dump_json(indent=2), thread_id, state_extra)
     return explanation, thread_id
 
@@ -237,7 +262,8 @@ def analyze_transactions(
     multi_payload = MultiTransactionPayload(transactions=payloads, relations=relations)
 
     thread_id = _multi_thread_id([s.hash for s in summaries], mode)
-    state_extra: ExplainStateExtra = {"multi": True, "mode": mode}
+    state_extra: ExplainStateExtra = {"multi": True, "mode": mode, "is_followup": False}
+    _reset_thread(graph, thread_id)
     explanation = _invoke_agent(
         graph, multi_payload.model_dump_json(indent=2), thread_id, state_extra
     )
@@ -249,3 +275,21 @@ def analyze_transactions(
         thread_id=thread_id,
         mode=mode,
     )
+
+
+@router.post("/chat", response_model=ChatResponse)
+def chat(payload: ChatRequest, graph: CompiledStateGraph = Depends(get_graph)) -> ChatResponse:
+    """Continues an existing /explain or /analyze thread with a follow-up message.
+
+    The thread already carries its routing flags (mode, gas_tips, reverted, ...)
+    and full message history in the checkpointer, so this only needs to append
+    one HumanMessage and re-invoke — same `_invoke_agent` helper the other
+    routes use, no new state to build.
+    """
+    config: RunnableConfig = {"configurable": {"thread_id": payload.thread_id}}
+    if not graph.get_state(config).values.get("messages"):
+        raise HTTPException(
+            status_code=404, detail="Unknown conversation — explain a transaction first."
+        )
+    reply = _invoke_agent(graph, payload.message, payload.thread_id, {"is_followup": True})
+    return ChatResponse(reply=reply, thread_id=payload.thread_id)

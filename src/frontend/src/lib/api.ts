@@ -105,6 +105,11 @@ export interface MultiTransactionAnalysisResponse {
   mode: ExplanationMode;
 }
 
+export interface ChatResponse {
+  reply: string;
+  thread_id: string;
+}
+
 export class ApiError extends Error {
   status: number;
   constructor(status: number, detail: string) {
@@ -123,6 +128,24 @@ async function request<T>(path: string): Promise<T> {
   if (!res.ok) {
     const body = await res.json().catch(() => null);
     throw new ApiError(res.status, body?.detail ?? `Request failed (${res.status}).`);
+  }
+  return res.json() as Promise<T>;
+}
+
+async function post<T>(path: string, body: unknown): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    throw new ApiError(0, "Could not reach the ChainWise backend — is it running?");
+  }
+  if (!res.ok) {
+    const respBody = await res.json().catch(() => null);
+    throw new ApiError(res.status, respBody?.detail ?? `Request failed (${res.status}).`);
   }
   return res.json() as Promise<T>;
 }
@@ -151,4 +174,8 @@ export function analyzeTransactions(
   const params = new URLSearchParams({ mode });
   for (const h of hashes) params.append("hash", h);
   return request<MultiTransactionAnalysisResponse>(`/analyze?${params}`);
+}
+
+export function sendChatMessage(threadId: string, message: string): Promise<ChatResponse> {
+  return post<ChatResponse>("/chat", { thread_id: threadId, message });
 }

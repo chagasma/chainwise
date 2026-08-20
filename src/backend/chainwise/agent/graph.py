@@ -12,6 +12,7 @@ from chainwise.agent.prompts import (
     CLARIFY_SYSTEM_PROMPT,
     DIAGNOSE_SYSTEM_PROMPT,
     EXPLAIN_SYSTEM_PROMPT,
+    FOLLOWUP_ADDENDUM,
     GAS_TIPS_ADDENDUM,
     MODE_ADDENDA,
     MULTI_TX_SYSTEM_PROMPT,
@@ -28,6 +29,7 @@ class ExplainStateExtra(TypedDict, total=False):
     multi: bool
     mode: ExplanationMode
     gas_tips: bool
+    is_followup: bool
 
 
 class ExplainState(MessagesState, ExplainStateExtra):
@@ -41,6 +43,8 @@ def _run_llm_node(state: ExplainState, prompt: str) -> dict[str, Any]:
     prompt += MODE_ADDENDA.get(state.get("mode", DEFAULT_MODE), "")
     if state.get("gas_tips"):
         prompt += GAS_TIPS_ADDENDUM
+    if state.get("is_followup"):
+        prompt += FOLLOWUP_ADDENDUM
     response = llm.invoke([SystemMessage(content=prompt), *state["messages"]])
     return {"messages": [response]}
 

@@ -32,6 +32,6 @@ app.middleware("http")(request_context_middleware)
 # needs to call this from the browser, and there's nothing here worth
 # restricting by origin.
 app.add_middleware(
-    CORSMiddleware, allow_origins=["*"], allow_methods=["GET"], allow_headers=["*"]
+    CORSMiddleware, allow_origins=["*"], allow_methods=["GET", "POST"], allow_headers=["*"]
 )
 app.include_router(router)

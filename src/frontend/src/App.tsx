@@ -16,7 +16,7 @@ import { ErrorPanel } from "./components/ErrorPanel";
 import { SummaryCard } from "./components/SummaryCard";
 import { TokensList, SecurityFindings } from "./components/TokensAndSecurity";
 import { GroundingCitation } from "./components/GroundingCitation";
-import { ExplanationPanel } from "./components/ExplanationPanel";
+import { ChatPanel } from "./components/ChatPanel";
 import { MultiTxView } from "./components/MultiTxView";
 
 type Result =
@@ -76,29 +76,36 @@ function App() {
         {result.kind === "error" && <ErrorPanel message={result.message} />}
 
         {result.kind === "single" && (
-          <div className="mx-auto w-full max-w-5xl px-6 sm:px-0">
-            <div className="grid gap-4 lg:grid-cols-3">
-              <div className="space-y-4 lg:col-span-2">
-                <SummaryCard summary={result.data.summary} />
-                <ExplanationPanel
-                  explanation={result.data.explanation}
-                  mode={result.data.mode}
-                  gasTips={result.data.gas_tips}
-                  needsClarification={result.data.needs_clarification}
-                />
-              </div>
+          <div className="mx-auto w-full max-w-6xl px-6 sm:px-0">
+            <div className="grid gap-4 lg:grid-cols-[380px_1fr]">
               <div className="space-y-4">
+                <SummaryCard summary={result.data.summary} />
                 <SecurityFindings findings={result.data.security_findings} />
                 <TokensList tokens={result.data.tokens} />
                 <GroundingCitation grounding={result.data.grounding} />
               </div>
+              <ChatPanel
+                threadId={result.data.thread_id}
+                explanation={result.data.explanation}
+                mode={result.data.mode}
+                gasTips={result.data.gas_tips}
+                needsClarification={result.data.needs_clarification}
+              />
             </div>
           </div>
         )}
 
         {result.kind === "multi" && (
-          <div className="mx-auto w-full max-w-5xl px-6 sm:px-0">
-            <MultiTxView result={result.data} />
+          <div className="mx-auto w-full max-w-6xl px-6 sm:px-0">
+            <div className="grid gap-4 lg:grid-cols-[380px_1fr]">
+              <MultiTxView result={result.data} />
+              <ChatPanel
+                threadId={result.data.thread_id}
+                explanation={result.data.explanation}
+                mode={result.data.mode}
+                title="Combined analysis"
+              />
+            </div>
           </div>
         )}
       </main>

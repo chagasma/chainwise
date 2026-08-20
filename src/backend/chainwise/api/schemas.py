@@ -132,3 +132,15 @@ class MultiTransactionAnalysisResponse(BaseModel):
     explanation: str
     thread_id: str
     mode: ExplanationMode
+
+
+class ChatRequest(BaseModel):
+    """A follow-up message into an existing /explain or /analyze thread."""
+
+    thread_id: str
+    message: str
+
+
+class ChatResponse(BaseModel):
+    reply: str
+    thread_id: str

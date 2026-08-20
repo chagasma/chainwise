@@ -218,3 +218,34 @@ generic advice. If the transaction reverted, note that a failed call still \
 consumes gas up to the revert point, so there is no successful execution \
 path to evaluate for efficiency, and skip further commentary here.\
 """
+
+# Appended (on top of everything above) whenever state["is_followup"] is
+# True — set only by POST /chat (api/routes.py), never by /explain or
+# /analyze. A message-count heuristic ("more than one message in state")
+# was tried first and rejected: /explain and /analyze reuse a deterministic
+# thread_id (same hash+mode+gas_tips = same thread), so re-running an
+# explain on a thread that already had a /chat exchange — or that a prior
+# manual test left messages in — would misfire and return a truncated
+# chat-style reply instead of the real explanation. An explicit flag, set
+# only by the one caller that means "this really is a follow-up," doesn't
+# have that failure mode. The rules above were written for that first,
+# single-shot response; this keeps them (grounding, citations, no
+# fabrication) but relaxes the rigid output *structure* and, critically,
+# unblocks CLARIFY_SYSTEM_PROMPT's "never speculate" rule once the user has
+# actually supplied the missing piece.
+FOLLOWUP_ADDENDUM = """
+
+This is a follow-up message in an ongoing conversation about the same \
+transaction(s) — the structured response above (with its required sections/ \
+format) was only for the first message. Now just answer the user's specific \
+question directly and conversationally; don't repeat the full initial \
+breakdown unless they ask for it again.
+
+If the earlier response said something couldn't be decoded or was unknown, \
+and the user's new message supplies the missing piece (e.g. pastes an ABI, \
+names the implementation contract, explains what a function does), that \
+"never speculate" rule was about guessing without evidence — it does not \
+apply once the user has given you real evidence. Use what they gave you and \
+answer for real, while still being clear about what's now known from the \
+user versus what's independently verified from the original payload.\
+"""

@@ -3,7 +3,6 @@ import { Panel } from "./Panel";
 import { SummaryCard } from "./SummaryCard";
 import { TokensList, SecurityFindings } from "./TokensAndSecurity";
 import { GroundingCitation } from "./GroundingCitation";
-import { ExplanationPanel } from "./ExplanationPanel";
 import { shortHash } from "../lib/format";
 
 const RELATION_ICON: Record<string, string> = {
@@ -32,26 +31,16 @@ export function MultiTxView({ result }: { result: MultiTransactionAnalysisRespon
         </Panel>
       )}
 
-      <ExplanationPanel
-        explanation={result.explanation}
-        mode={result.mode}
-        title="Combined analysis"
-      />
-
       <div className="space-y-4">
         <p className="font-mono text-[10px] tracking-widest text-[var(--color-text-faint)] uppercase">
           {result.transactions.length} transactions, chronological order
         </p>
         {result.transactions.map((payload) => (
-          <div key={payload.summary.hash} className="grid gap-4 lg:grid-cols-3">
-            <div className="lg:col-span-2">
-              <SummaryCard summary={payload.summary} />
-            </div>
-            <div className="space-y-4">
-              <SecurityFindings findings={payload.security_findings} />
-              <TokensList tokens={payload.tokens} />
-              <GroundingCitation grounding={payload.grounding} />
-            </div>
+          <div key={payload.summary.hash} className="space-y-4">
+            <SummaryCard summary={payload.summary} />
+            <SecurityFindings findings={payload.security_findings} />
+            <TokensList tokens={payload.tokens} />
+            <GroundingCitation grounding={payload.grounding} />
           </div>
         ))}
       </div>

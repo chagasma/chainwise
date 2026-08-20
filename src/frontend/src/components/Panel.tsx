@@ -4,6 +4,7 @@ interface PanelProps {
   title?: ReactNode;
   eyebrow?: string;
   accent?: "cyan" | "magenta" | "violet" | "amber" | "neutral";
+  actions?: ReactNode;
   children: ReactNode;
   className?: string;
   style?: React.CSSProperties;
@@ -21,6 +22,7 @@ export function Panel({
   title,
   eyebrow,
   accent = "neutral",
+  actions,
   children,
   className = "",
   style,
@@ -56,6 +58,7 @@ export function Panel({
             )}
             {title && <h3 className="mt-0.5 font-display text-base font-semibold text-[var(--color-text)]">{title}</h3>}
           </div>
+          {actions}
         </header>
       )}
       {children}

@@ -2,7 +2,7 @@ import type { TransactionSummary } from "../lib/api";
 import { Panel } from "./Panel";
 import { StatusPill } from "./StatusPill";
 import { TxTracePath } from "./TxTracePath";
-import { formatTimestamp, weiToEth } from "../lib/format";
+import { formatTimestamp, shortHash, weiToEth } from "../lib/format";
 
 function Field({ label, value, mono = true }: { label: string; value: React.ReactNode; mono?: boolean }) {
   return (
@@ -21,9 +21,10 @@ export function SummaryCard({ summary }: { summary: TransactionSummary }) {
           href={summary.source_url}
           target="_blank"
           rel="noreferrer"
-          className="font-mono text-sm text-[var(--color-text)] hover:text-[var(--color-cyan)]"
+          title={summary.hash}
+          className="min-w-0 truncate font-mono text-sm text-[var(--color-text)] hover:text-[var(--color-cyan)]"
         >
-          {summary.hash}
+          {shortHash(summary.hash, 10)}
         </a>
         <StatusPill status={summary.status} />
       </div>
@@ -38,15 +39,14 @@ export function SummaryCard({ summary }: { summary: TransactionSummary }) {
         </p>
       )}
 
-      <dl className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-4">
+      {/* From and Method are already shown above in TxTracePath — no need to repeat them here. */}
+      <dl className="grid grid-cols-2 gap-x-4 gap-y-3">
         <Field label="Block" value={summary.block_number ?? "pending"} />
         <Field label="Timestamp" value={formatTimestamp(summary.timestamp)} mono={false} />
         <Field label="Value" value={`${weiToEth(summary.value_wei)} native`} />
         <Field label="Gas used" value={summary.gas_used?.toLocaleString() ?? "—"} />
-        <Field label="From" value={summary.from_address} />
         <Field label="To" value={summary.to_address ?? "(contract creation)"} />
         <Field label="Fee" value={summary.fee_wei ? `${weiToEth(summary.fee_wei)} native` : "—"} />
-        <Field label="Method" value={summary.method ?? "unknown"} />
       </dl>
     </Panel>
   );

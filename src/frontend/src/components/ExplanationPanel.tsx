@@ -1,5 +1,6 @@
 import ReactMarkdown from "react-markdown";
 import type { ExplanationMode } from "../lib/api";
+import { CopyButton } from "./CopyButton";
 import { Panel } from "./Panel";
 
 interface ExplanationPanelProps {
@@ -35,6 +36,7 @@ export function ExplanationPanel({
           )}
         </span>
       }
+      actions={<CopyButton text={explanation} />}
     >
       {needsClarification && (
         <p className="mb-3 rounded-md border border-[var(--color-violet)] bg-[rgba(124,92,255,0.08)] px-3 py-2 font-mono text-xs text-[var(--color-violet)]">

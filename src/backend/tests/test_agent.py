@@ -267,3 +267,91 @@ def test_build_graph_persists_state_across_calls_with_same_thread(monkeypatch: A
     state = graph.get_state(config)
 
     assert len(state.values["messages"]) == 2  # human + ai
+
+
+def test_build_graph_omits_followup_addendum_by_default(monkeypatch: Any) -> None:
+    calls: list[list[Any]] = []
+
+    class _RecordingLLM:
+        def invoke(self, messages: list[Any]) -> AIMessage:
+            calls.append(messages)
+            return AIMessage(content="explained")
+
+    monkeypatch.setattr(graph_module, "get_llm", lambda: _RecordingLLM())
+
+    graph = build_graph(checkpointer=InMemorySaver())
+    graph.invoke(
+        {"messages": [HumanMessage(content='{"hash": "0xabc"}')], "reverted": False},
+        config={"configurable": {"thread_id": "0xabc"}},
+    )
+
+    assert "follow-up message" not in calls[0][0].content
+
+
+def test_build_graph_appends_followup_addendum_when_flagged(monkeypatch: Any) -> None:
+    calls: list[list[Any]] = []
+
+    class _RecordingLLM:
+        def invoke(self, messages: list[Any]) -> AIMessage:
+            calls.append(messages)
+            return AIMessage(content="reply")
+
+    monkeypatch.setattr(graph_module, "get_llm", lambda: _RecordingLLM())
+
+    checkpointer = InMemorySaver()
+    graph = build_graph(checkpointer=checkpointer)
+    config: RunnableConfig = {"configurable": {"thread_id": "0xabc"}}
+
+    graph.invoke(
+        {"messages": [HumanMessage(content='{"hash": "0xabc"}')], "reverted": False}, config=config
+    )
+    graph.invoke(
+        {"messages": [HumanMessage(content="what does that mean?")], "is_followup": True},
+        config=config,
+    )
+
+    assert "follow-up message" not in calls[0][0].content
+    assert "follow-up message" in calls[1][0].content
+
+
+def test_build_graph_re_explaining_a_chatted_thread_is_not_treated_as_followup(
+    monkeypatch: Any,
+) -> None:
+    """Regression test: /explain and /analyze reuse a deterministic thread_id, so
+    re-running an explain on a thread that already had a /chat exchange (or that
+    a prior manual test left messages in) must still get the full, un-truncated
+    explain prompt — not the followup addendum a message-count heuristic would
+    have wrongly applied here.
+    """
+    calls: list[list[Any]] = []
+
+    class _RecordingLLM:
+        def invoke(self, messages: list[Any]) -> AIMessage:
+            calls.append(messages)
+            return AIMessage(content="reply")
+
+    monkeypatch.setattr(graph_module, "get_llm", lambda: _RecordingLLM())
+
+    checkpointer = InMemorySaver()
+    graph = build_graph(checkpointer=checkpointer)
+    config: RunnableConfig = {"configurable": {"thread_id": "0xabc"}}
+
+    graph.invoke(
+        {"messages": [HumanMessage(content='{"hash": "0xabc"}')], "reverted": False}, config=config
+    )
+    graph.invoke(
+        {"messages": [HumanMessage(content="a chat follow-up")], "is_followup": True},
+        config=config,
+    )
+    # Re-running /explain on the same thread: is_followup must be reset to
+    # False, not omitted (which would keep the True from the chat turn above).
+    graph.invoke(
+        {
+            "messages": [HumanMessage(content='{"hash": "0xabc"}')],
+            "reverted": False,
+            "is_followup": False,
+        },
+        config=config,
+    )
+
+    assert "follow-up message" not in calls[-1][0].content
