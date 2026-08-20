@@ -16,12 +16,16 @@ testado (unitário + validado ao vivo contra APIs reais) e commitado em `main`.
   repo grounding (fallback de ABI) → LangGraph → OpenRouter → explicação em linguagem natural
   com citação de fontes. Validado ponta a ponta com transações reais no Ethereum mainnet e na
   Polygon PoS.
-- **Config-driven portability comprovada**: troquei `CHAINWISE_NETWORK` entre `ethereum-mainnet`
-  e `polygon-pos` sem tocar em código e o pipeline inteiro funcionou (explorer, RPC, LLM).
-  `gnosis-chain` tem RPC funcionando, mas o explorer oficial (`gnosis.blockscout.com`) está
-  fora do ar agora (redirecionando pra `gnosisscan.io`, que não é Blockscout-compatible) — ver
-  "Problemas conhecidos" abaixo. Isso não é bug nosso: validamos que o `BlockscoutClient`
-  degrada graciosamente (502 com mensagem clara) exatamente como devia.
+- **Config-driven portability comprovada nas 3 redes**: troquei `CHAINWISE_NETWORK` entre
+  `ethereum-mainnet`, `polygon-pos` e `gnosis-chain` sem tocar em código e o pipeline inteiro
+  funcionou (explorer, RPC, LLM) nas 3. `gnosis-chain.yaml` apontava originalmente pra
+  `gnosis.blockscout.com`, que foi descontinuado (não instabilidade temporária — o domínio
+  redireciona 301 permanentemente); descobri em 2026-08-20 que `gnosisscan.io` (apesar do nome
+  sugerir API estilo Etherscan) roda a mesma API Blockscout v2 por baixo — confirmado batendo
+  direto em `/api/v2/transactions/{hash}` e `/logs`, shape idêntico ao que `BlockscoutClient` já
+  espera. Atualizei só `explorer_url` no YAML pra `https://gnosisscan.io` e validei ao vivo
+  (`GET /tx/{hash}` real, 200, decode correto, `source_url` certo) — puramente config, reforça o
+  próprio argumento de portabilidade do projeto.
 - **Adapters** (`adapters/`): `BlockscoutClient` (tx/receipt/logs), `RPCClient` (`eth_call` via
   JSON-RPC puro, sem `web3.py`), `GitHubClient` (code search + file contents). Todos herdam
   `adapters/base.py::HttpAdapter` (lifecycle do `httpx.Client` + context manager) e seguem o
@@ -183,9 +187,8 @@ testado (unitário + validado ao vivo contra APIs reais) e commitado em `main`.
    adapters. Ver seção "O que já funciona".
 3. ~~**Docker Compose cobrindo o backend**~~ — feito: `make up`/`make down`. Ver seção "O que já
    funciona".
-4. **Gnosis Chain** — reconferido em 2026-08-20: RPC ok, explorer (`gnosis.blockscout.com`)
-   continua redirecionando (301) pra `gnosisscan.io`, não Blockscout-compatible. Segue bloqueado
-   por serviço externo, não por código nosso.
+4. ~~**Gnosis Chain**~~ — resolvido em 2026-08-20: `explorer_url` trocado pra `gnosisscan.io`
+   (mesma API Blockscout v2, domínio novo). Ver "O que já funciona".
 5. **Bônus** (em andamento, um de cada vez):
    - [x] Modos developer/support/auditor — feito (`?mode=` em `/tx/{hash}/explain`). Ver seção
      "O que já funciona".
@@ -204,11 +207,6 @@ testado (unitário + validado ao vivo contra APIs reais) e commitado em `main`.
 
 ### Problemas conhecidos
 
-- `gnosis-chain.yaml` aponta pra `https://gnosis.blockscout.com`, que é a URL oficial
-  documentada (confirmada via Chainlist e docs.gnosischain.com), mas está redirecionando (301)
-  pra `gnosisscan.io` no momento — pode ser uma instabilidade temporária. Não mexi na config
-  porque não é uma URL errada, é um serviço externo fora do ar agora. Vale reconferir antes de
-  fechar o teste de portabilidade dessa rede.
 - Repo grounding só encontra algo de verdade com `GITHUB_TOKEN` configurado (API do GitHub
   exige auth pra code search). Sem token, sempre degrada pra `grounding: null` — comportamento
   esperado e testado, só documentando pra não confundir num teste manual futuro.
@@ -496,8 +494,8 @@ chainwise/
 - [ ] Criar `docs/examples.md` com 3+ exemplos.
 - [x] Adicionar testes unitários — 70 testes, tudo mockado (`httpx.MockTransport`), sem testes de
       integração batendo em rede real (validação real foi feita manualmente, ver seção 0).
-- [x] Revisar config-driven portability com pelo menos 2 redes — Ethereum mainnet e Polygon PoS
-      validadas ponta a ponta; Gnosis Chain com RPC validado, explorer pendente (fora do ar).
+- [x] Revisar config-driven portability com pelo menos 2 redes — Ethereum mainnet, Polygon PoS
+      e Gnosis Chain validadas ponta a ponta (as 3).
 - [x] Criar docker compose cobrindo o backend — `postgres` + `backend` juntos, `make up`/
       `make down`, validado ao vivo (`docker compose build` + `up` + `/` e `/network` respondendo).
 
@@ -544,9 +542,8 @@ Ordem sugerida pra retomar o trabalho — foco continua 100% backend antes do fr
    causa provável + próximos passos, em vez de depender só do `revert_reason` cru dentro do
    prompt único de hoje. É o item que falta pra fechar a Fase 4 e o critério de sucesso da
    seção 9.
-2. **Fechar a validação de portabilidade da Gnosis Chain** — reconferir se
-   `gnosis.blockscout.com` voltou ao ar; se não, decidir entre esperar ou trocar de explorer
-   pra essa rede (ver "Problemas conhecidos" na seção 0).
+2. ~~**Fechar a validação de portabilidade da Gnosis Chain**~~ — feito em 2026-08-20 (troca de
+   `explorer_url` pra `gnosisscan.io`, ver seção 0).
 3. **Frontend mínimo** — interface simples (web ou CLI) consumindo `GET /tx/{hash}/explain`.
 4. **README + `docs/examples.md`** — setup, config de rede, 3+ exemplos reais (já rodamos vários
    ao longo do desenvolvimento, inclusive um caso de repo grounding real contra `go-ethereum`

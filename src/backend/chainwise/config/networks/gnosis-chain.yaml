@@ -1,6 +1,6 @@
 name: Gnosis Chain
 chain_id: 100
-explorer_url: https://gnosis.blockscout.com
+explorer_url: https://gnosisscan.io
 rpc_url: https://gnosis-rpc.publicnode.com
 repos:
   - https://github.com/gnosischain/specs
