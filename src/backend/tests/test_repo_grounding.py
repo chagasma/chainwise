@@ -187,6 +187,20 @@ def test_ground_transaction_degrades_gracefully_when_search_fails(monkeypatch) -
     assert ground_transaction(RAW_INPUT, NETWORK) is None
 
 
+def test_ground_transaction_degrades_gracefully_when_rate_limited(monkeypatch, caplog) -> None:
+    """Common without GITHUB_TOKEN configured — must not be logged as a real failure."""
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(403, headers={"x-ratelimit-remaining": "0"}, json={})
+    )
+    _patch_github(monkeypatch, transport)
+
+    with caplog.at_level("WARNING", logger="chainwise.repo_grounding"):
+        result = ground_transaction(RAW_INPUT, NETWORK)
+
+    assert result is None
+    assert not any("repo_search_failed" in r.message for r in caplog.records)
+
+
 def test_ground_transaction_tries_next_repo_after_a_failure(monkeypatch) -> None:
     network = NetworkConfig(
         **{**NETWORK.model_dump(), "repos": ["https://github.com/broken/repo", REPO_URL]}

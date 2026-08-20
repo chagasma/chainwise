@@ -2,7 +2,7 @@ import json
 from typing import Any
 from urllib.parse import urlparse
 
-from chainwise.adapters import GitHubClient, GitHubError
+from chainwise.adapters import GitHubClient, GitHubError, GitHubRateLimitedError
 from chainwise.config import NetworkConfig
 from chainwise.models import RepoGroundingResult
 from chainwise.observability import get_logger
@@ -65,6 +65,12 @@ def ground_transaction(
             repo = _repo_slug(repo_url)
             try:
                 candidates = github.search_code(repo, _ARTIFACT_SEARCH_QUERY)
+            except GitHubRateLimitedError:
+                # Expected and common without a configured GITHUB_TOKEN (code
+                # search is ~10 req/min unauthenticated) — not a real failure,
+                # so it doesn't warrant a warning-level log every time.
+                logger.info("repo_search_rate_limited", extra={"repo": repo})
+                continue
             except GitHubError as exc:
                 logger.warning("repo_search_failed", extra={"repo": repo, "error": str(exc)})
                 continue
@@ -85,6 +91,9 @@ def _try_decode_against_file(
     try:
         content = github.get_file_content(repo, path)
         abis = _extract_abis(json.loads(content))
+    except GitHubRateLimitedError:
+        logger.info("repo_file_rate_limited", extra={"repo": repo, "path": path})
+        return None
     except (GitHubError, json.JSONDecodeError, UnicodeDecodeError) as exc:
         logger.warning(
             "repo_artifact_unreadable", extra={"repo": repo, "path": path, "error": str(exc)}
