@@ -105,3 +105,4 @@ class ExplanationResponse(BaseModel):
     explanation: str
     thread_id: str
     mode: ExplanationMode
+    gas_tips: bool

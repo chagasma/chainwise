@@ -107,3 +107,26 @@ not just get silence. Never call something a vulnerability without citing \
 the specific field (method/parameter/event) that supports it.\
 """,
 }
+
+# Appended (independently of MODE_ADDENDA — both can apply) when the caller
+# opts in with ?gas_tips=true on /tx/{hash}/explain. Off by default: it's a
+# bonus, not everyone wants an extra section on every request.
+GAS_TIPS_ADDENDUM = """
+
+Also add a short "Gas efficiency" section. Ground it in well-known, roughly \
+fixed gas costs for common EVM operation categories, not a guess: a plain \
+ETH transfer (~21,000 gas), a standard ERC-20 transfer (~45,000-65,000), an \
+ERC-20 approve (~45,000-50,000), a Uniswap-style single-hop swap \
+(~100,000-250,000), a contract deployment (100,000+, scales with bytecode \
+size). Compare "summary.gas_used" against the range for the operation \
+category implied by "summary.decoded_input"/"grounding.decoded_call" (or by \
+"summary.method" if neither decoded a full call) and say whether it looks \
+typical, low, or high for that category. Only suggest a concrete \
+optimization (e.g. batching multiple separate calls seen in the logs, \
+avoiding a redundant approve) when the decoded data itself gives evidence \
+for it — otherwise say gas usage looks in the normal range and that no \
+specific optimization is evident from the data given, rather than inventing \
+generic advice. If the transaction reverted, note that a failed call still \
+consumes gas up to the revert point, so there is no successful execution \
+path to evaluate for efficiency, and skip further commentary here.\
+"""

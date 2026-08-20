@@ -93,18 +93,33 @@ def _build_prompt_payload(
     return LLMPromptPayload(summary=summary, tokens=tokens, grounding=grounding)
 
 
+def _thread_id(tx_hash: str, mode: ExplanationMode, gas_tips: bool) -> str:
+    """Isolates the checkpointed conversation per (mode, gas_tips) combination.
+
+    The all-default case (DEFAULT_MODE, no gas tips) keeps thread_id ==
+    tx_hash, so existing checkpoints/tests are unaffected; any other
+    combination gets its own thread so, e.g., a support-toned answer never
+    lands in an auditor's message history for the same tx.
+    """
+    suffix = "" if mode == DEFAULT_MODE else f":{mode}"
+    if gas_tips:
+        suffix += ":gas"
+    return tx_hash + suffix
+
+
 def _run_agent(
-    graph: CompiledStateGraph, payload: LLMPromptPayload, tx_hash: str, mode: ExplanationMode
+    graph: CompiledStateGraph,
+    payload: LLMPromptPayload,
+    tx_hash: str,
+    mode: ExplanationMode,
+    gas_tips: bool,
 ) -> tuple[str, str]:
-    # Isolate the checkpointed conversation per mode too: same thread_id for
-    # DEFAULT_MODE keeps existing checkpoints/tests valid, other modes get
-    # their own thread so a support-toned answer never lands in an auditor's
-    # message history for the same tx.
-    thread_id = tx_hash if mode == DEFAULT_MODE else f"{tx_hash}:{mode}"
+    thread_id = _thread_id(tx_hash, mode, gas_tips)
     initial_state = {
         "messages": [HumanMessage(content=payload.model_dump_json(indent=2))],
         "reverted": payload.summary.status == "reverted",
         "mode": mode,
+        "gas_tips": gas_tips,
     }
     try:
         result = graph.invoke(initial_state, config={"configurable": {"thread_id": thread_id}})
@@ -123,13 +138,14 @@ def _run_agent(
 def explain_transaction(
     tx_hash: str,
     mode: ExplanationMode = Query(DEFAULT_MODE, description="Audience for the explanation."),
+    gas_tips: bool = Query(False, description="Add a gas-efficiency section."),
     network: NetworkConfig = Depends(get_network),
     settings: Settings = Depends(get_settings),
     graph: CompiledStateGraph = Depends(get_graph),
 ) -> ExplanationResponse:
     summary = _get_transaction_summary(tx_hash, network)
     payload = _build_prompt_payload(summary, network, settings)
-    explanation, thread_id = _run_agent(graph, payload, tx_hash, mode)
+    explanation, thread_id = _run_agent(graph, payload, tx_hash, mode, gas_tips)
     return ExplanationResponse(
         summary=payload.summary,
         tokens=payload.tokens,
@@ -137,4 +153,5 @@ def explain_transaction(
         explanation=explanation,
         thread_id=thread_id,
         mode=mode,
+        gas_tips=gas_tips,
     )

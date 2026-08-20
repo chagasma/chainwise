@@ -95,6 +95,74 @@ def test_build_graph_defaults_to_developer_mode_when_unset(monkeypatch: Any) -> 
     assert "security auditor" not in system_prompt
 
 
+def test_build_graph_appends_gas_tips_addendum_when_requested(monkeypatch: Any) -> None:
+    calls: list[list[Any]] = []
+
+    class _RecordingLLM:
+        def invoke(self, messages: list[Any]) -> AIMessage:
+            calls.append(messages)
+            return AIMessage(content="explained with gas tips")
+
+    monkeypatch.setattr(graph_module, "get_llm", lambda: _RecordingLLM())
+
+    graph = build_graph(checkpointer=InMemorySaver())
+    graph.invoke(
+        {
+            "messages": [HumanMessage(content='{"hash": "0xabc"}')],
+            "reverted": False,
+            "gas_tips": True,
+        },
+        config={"configurable": {"thread_id": "0xabc:gas"}},
+    )
+
+    assert "Gas efficiency" in calls[0][0].content
+
+
+def test_build_graph_omits_gas_tips_addendum_by_default(monkeypatch: Any) -> None:
+    calls: list[list[Any]] = []
+
+    class _RecordingLLM:
+        def invoke(self, messages: list[Any]) -> AIMessage:
+            calls.append(messages)
+            return AIMessage(content="explained")
+
+    monkeypatch.setattr(graph_module, "get_llm", lambda: _RecordingLLM())
+
+    graph = build_graph(checkpointer=InMemorySaver())
+    graph.invoke(
+        {"messages": [HumanMessage(content='{"hash": "0xabc"}')], "reverted": False},
+        config={"configurable": {"thread_id": "0xabc"}},
+    )
+
+    assert "Gas efficiency" not in calls[0][0].content
+
+
+def test_build_graph_combines_mode_and_gas_tips_addenda(monkeypatch: Any) -> None:
+    calls: list[list[Any]] = []
+
+    class _RecordingLLM:
+        def invoke(self, messages: list[Any]) -> AIMessage:
+            calls.append(messages)
+            return AIMessage(content="explained for an auditor with gas tips")
+
+    monkeypatch.setattr(graph_module, "get_llm", lambda: _RecordingLLM())
+
+    graph = build_graph(checkpointer=InMemorySaver())
+    graph.invoke(
+        {
+            "messages": [HumanMessage(content='{"hash": "0xabc"}')],
+            "reverted": False,
+            "mode": "auditor",
+            "gas_tips": True,
+        },
+        config={"configurable": {"thread_id": "0xabc:auditor:gas"}},
+    )
+
+    system_prompt = calls[0][0].content
+    assert "security auditor" in system_prompt
+    assert "Gas efficiency" in system_prompt
+
+
 def test_build_graph_persists_state_across_calls_with_same_thread(monkeypatch: Any) -> None:
     monkeypatch.setattr(graph_module, "get_llm", lambda: _FakeLLM())
     checkpointer = InMemorySaver()

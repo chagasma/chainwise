@@ -91,6 +91,7 @@ def test_explain_transaction_returns_grounded_explanation(
     assert body["summary"]["hash"] == "0xabc"
     assert body["thread_id"] == "0xabc"
     assert body["mode"] == "developer"
+    assert body["gas_tips"] is False
 
 
 def test_explain_transaction_defaults_to_developer_mode(
@@ -123,6 +124,37 @@ def test_explain_transaction_passes_mode_and_isolates_thread_id(
     assert graph.last_state["mode"] == "auditor"
     assert graph.last_config is not None
     assert graph.last_config["configurable"]["thread_id"] == "0xabc:auditor"
+
+
+def test_explain_transaction_passes_gas_tips_and_isolates_thread_id(
+    monkeypatch: Any, override_graph: Any
+) -> None:
+    monkeypatch.setattr(routes_module, "BlockscoutClient", _FakeBlockscoutClient())
+    graph = _FakeGraph("explained with gas tips")
+    override_graph(graph)
+
+    response = client.get("/tx/0xabc/explain?gas_tips=true")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["gas_tips"] is True
+    assert body["thread_id"] == "0xabc:gas"
+    assert graph.last_state is not None
+    assert graph.last_state["gas_tips"] is True
+
+
+def test_explain_transaction_combines_mode_and_gas_tips_in_thread_id(
+    monkeypatch: Any, override_graph: Any
+) -> None:
+    monkeypatch.setattr(routes_module, "BlockscoutClient", _FakeBlockscoutClient())
+    graph = _FakeGraph("explained for an auditor with gas tips")
+    override_graph(graph)
+
+    response = client.get("/tx/0xabc/explain?mode=auditor&gas_tips=true")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["thread_id"] == "0xabc:auditor:gas"
 
 
 def test_explain_transaction_rejects_unknown_mode(

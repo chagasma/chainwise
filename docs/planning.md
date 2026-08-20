@@ -76,12 +76,26 @@ testado (unitário + validado ao vivo contra APIs reais) e commitado em `main`.
   `dict[ExplanationMode, str]`/`ExplanationMode` (um `mode` digitado errado agora é erro de
   typecheck, não um addendum silenciosamente ignorado). Revisão confirmou que a separação
   `reverted`/`mode` no grafo é limpa — não virou espaguete.
+- **Gas optimization suggestions** (`?gas_tips=true` em `/tx/{hash}/explain`, default `false`):
+  mesmo padrão de `MODE_ADDENDA` — `GAS_TIPS_ADDENDUM` em `agent/prompts.py`, aplicado
+  independentemente do modo (`_run_llm_node` concatena os dois addenda quando ambos se aplicam).
+  Grounded em faixas de gas conhecidas por categoria de operação (transfer simples ~21k, ERC-20
+  transfer ~45-65k, approve ~45-50k, swap single-hop ~100-250k, deploy 100k+), instrui o LLM a
+  comparar `gas_used` contra a categoria implícita no `decoded_input`/`grounding` e só sugerir
+  otimização concreta quando os dados decodificados de fato evidenciam uma (nunca inventar
+  conselho genérico). Pra tx revertida, pede pra notar que gas ainda foi consumido até o ponto do
+  revert e não avaliar eficiência de um caminho que não completou. `thread_id` combina modo e gas
+  tips (`_thread_id()` em `routes.py`, ex: `{hash}:auditor:gas`) — escrito já com constante
+  compartilhada desde o início, sem repetir o problema de string mágica da rodada anterior.
+  Validado ao vivo: seção "Gas efficiency" apareceu certinha numa tx de sucesso (172k gas, "faixa
+  típica pra swap") e numa revertida (43k gas, ressalva correta de que não há caminho de sucesso
+  pra avaliar).
 - **Bug real achado testando manualmente** (não pelos testes automatizados): a Blockscout às
   vezes manda `revert_reason` como objeto decodificado (erro customizado do Solidity, mesmo shape
   do `decoded_input`), não como string — `TransactionSummary` só aceitava string e 502ava.
   Corrigido em `api/schemas.py::_revert_reason`. Reforça que testes mockados não substituem bater
   numa API real de vez em quando.
-- **76 testes** (unitários, tudo mockado via `httpx.MockTransport`/fakes — nenhum teste bate em
+- **81 testes** (unitários, tudo mockado via `httpx.MockTransport`/fakes — nenhum teste bate em
   rede real), lint (`ruff`) e typecheck (`pyright`) limpos. Rodar com `make check`.
 - **5 revisões de qualidade de código** já passaram por essa base (via skill `code-quality`) —
   achados corrigidos: deduplicação de erro/network lookup nas rotas, bug real de decode ABI
@@ -114,9 +128,9 @@ testado (unitário + validado ao vivo contra APIs reais) e commitado em `main`.
 5. **Bônus** (em andamento, um de cada vez):
    - [x] Modos developer/support/auditor — feito (`?mode=` em `/tx/{hash}/explain`). Ver seção
      "O que já funciona".
+   - [x] Gas optimization suggestions — feito (`?gas_tips=true`). Ver seção "O que já funciona".
    - [ ] Structured triage flow (perguntas esclarecedoras antes de concluir).
    - [ ] Multi-transaction analysis.
-   - [ ] Gas optimization suggestions.
    - [ ] Security vulnerability detection baseada em padrões conhecidos — parcialmente coberto
      pelo modo `auditor` acima (sinaliza approvals/ownership/delegatecall inline na explicação),
      mas ainda não é uma feature dedicada com sua própria detecção estruturada.
@@ -176,7 +190,7 @@ O projeto será entregue como um repositório localmente executável, com README
 - [ ] Structured triage flow (perguntas esclarecedoras antes de concluir).
 - [x] Modos de operação: developer / support / auditor.
 - [ ] Multi-transaction analysis.
-- [ ] Gas optimization suggestions.
+- [x] Gas optimization suggestions.
 - [ ] Security vulnerability detection baseada em padrões conhecidos (parcial via modo `auditor`).
 
 ---
