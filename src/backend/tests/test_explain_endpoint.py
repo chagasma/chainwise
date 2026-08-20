@@ -239,3 +239,40 @@ def test_explain_transaction_skips_grounding_when_explorer_already_decoded(
 
     assert response.status_code == 200
     assert response.json()["grounding"] is None
+
+
+def test_explain_transaction_includes_security_findings_from_decoded_input(
+    monkeypatch: Any, override_graph: Any
+) -> None:
+    class _RiskyBlockscoutClient(_FakeBlockscoutClient):
+        def get_transaction(self, _tx_hash: str) -> dict[str, Any]:
+            return {
+                **TX,
+                "decoded_input": {
+                    "method_call": "transferOwnership(address newOwner)",
+                    "parameters": [{"name": "newOwner", "type": "address", "value": "0xnew"}],
+                },
+            }
+
+    monkeypatch.setattr(routes_module, "BlockscoutClient", _RiskyBlockscoutClient())
+    override_graph(_FakeGraph("This transfers contract ownership."))
+
+    response = client.get("/tx/0xabc/explain")
+
+    assert response.status_code == 200
+    findings = response.json()["security_findings"]
+    assert len(findings) == 1
+    assert findings[0]["pattern"] == "transferownership"
+    assert findings[0]["severity"] == "high"
+
+
+def test_explain_transaction_returns_no_security_findings_for_ordinary_call(
+    monkeypatch: Any, override_graph: Any
+) -> None:
+    monkeypatch.setattr(routes_module, "BlockscoutClient", _FakeBlockscoutClient())
+    override_graph(_FakeGraph("This transfers tokens."))
+
+    response = client.get("/tx/0xabc/explain")
+
+    assert response.status_code == 200
+    assert response.json()["security_findings"] == []

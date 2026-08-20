@@ -2,7 +2,7 @@ from typing import Any, Literal, Self
 
 from pydantic import BaseModel
 
-from chainwise.models import ExplanationMode, RepoGroundingResult, TokenMetadata
+from chainwise.models import ExplanationMode, RepoGroundingResult, SecurityFinding, TokenMetadata
 
 # Re-exported: routes.py imports ExplanationMode from here (it already imports
 # the rest of this module), not from chainwise.models directly.
@@ -94,6 +94,7 @@ class LLMPromptPayload(BaseModel):
     summary: TransactionSummary
     tokens: list[TokenMetadata]
     grounding: RepoGroundingResult | None
+    security_findings: list[SecurityFinding]
 
 
 class ExplanationResponse(BaseModel):
@@ -102,6 +103,7 @@ class ExplanationResponse(BaseModel):
     summary: TransactionSummary
     tokens: list[TokenMetadata]
     grounding: RepoGroundingResult | None
+    security_findings: list[SecurityFinding]
     explanation: str
     thread_id: str
     mode: ExplanationMode

@@ -89,15 +89,37 @@ testado (unitário + validado ao vivo contra APIs reais) e commitado em `main`.
   compartilhada desde o início, sem repetir o problema de string mágica da rodada anterior.
   Validado ao vivo: seção "Gas efficiency" apareceu certinha numa tx de sucesso (172k gas, "faixa
   típica pra swap") e numa revertida (43k gas, ressalva correta de que não há caminho de sucesso
-  pra avaliar).
+  pra avaliar). **6ª revisão de qualidade** (focada nessa feature): 0 achados HIGH — o único
+  achado MEDIUM (cada nova dimensão opt-in de addendum toca 5 lugares em lockstep) foi
+  explicitamente marcado como prematuro/YAGNI pelo próprio agent (só 2 dimensões hoje, refatorar
+  seria especulativo) e deixado como está, com o gatilho documentado: se um 3º addendum opcional
+  aparecer, trocar os `if`/`+=` em `_run_llm_node` por uma lista/comprehension e a concatenação de
+  sufixos em `_thread_id` por um `"|".join(filter(None, [...]))` único.
+- **Security vulnerability detection** — dedicada, não só o que o modo `auditor` já inferia:
+  `services/security.py::detect_risk_patterns(function_name, parameters)` casa determinística e
+  gratuitamente (sem I/O, sem LLM) o nome da função decodificada (`decoded_input` ou
+  `grounding.decoded_call`) contra uma lista de padrões conhecidos (`transferOwnership`, `setOwner`,
+  `upgradeTo`/`upgradeToAndCall`, `selfdestruct`, `grantRole`, etc, mais `approve()` com allowance
+  max-uint256) — igual o `decoder.py` já faz com selectors, mesmo espírito de fato verificável, não
+  opinião do modelo. Roda em **toda** requisição `/explain`, independente de `mode`/`gas_tips`
+  (não é uma escolha de tom, é um fato computado) — novo `models.SecurityFinding`
+  (pattern/severity/evidence) em `LLMPromptPayload`/`ExplanationResponse`, e uma nova regra no
+  prompt base (`EXPLAIN`/`DIAGNOSE_SYSTEM_PROMPT`, não só no addendum do `auditor`) instruindo o
+  LLM a relatar qualquer achado não-vazio como fato pré-computado, não algo pra inferir ou
+  suavizar. O addendum do `auditor` foi reescrito pra não duplicar isso — agora deixa explícito
+  que `security_findings` já cobre os padrões fixos por nome, e pede pro LLM usar julgamento
+  próprio só pro que a lista determinística não pega (delegatecall, chamador incomum pra ação
+  privilegiada), rotulando isso como julgamento, não fato. Validado ao vivo com uma tx real de
+  `approve()` com allowance máxima (max uint256) — `unlimited-approval` detectado corretamente e
+  citado tanto no `security_findings` quanto na prosa, em `developer` e `auditor`.
 - **Bug real achado testando manualmente** (não pelos testes automatizados): a Blockscout às
   vezes manda `revert_reason` como objeto decodificado (erro customizado do Solidity, mesmo shape
   do `decoded_input`), não como string — `TransactionSummary` só aceitava string e 502ava.
   Corrigido em `api/schemas.py::_revert_reason`. Reforça que testes mockados não substituem bater
   numa API real de vez em quando.
-- **81 testes** (unitários, tudo mockado via `httpx.MockTransport`/fakes — nenhum teste bate em
+- **89 testes** (unitários, tudo mockado via `httpx.MockTransport`/fakes — nenhum teste bate em
   rede real), lint (`ruff`) e typecheck (`pyright`) limpos. Rodar com `make check`.
-- **5 revisões de qualidade de código** já passaram por essa base (via skill `code-quality`) —
+- **6 revisões de qualidade de código** já passaram por essa base (via skill `code-quality`) —
   achados corrigidos: deduplicação de erro/network lookup nas rotas, bug real de decode ABI
   vazio, layering de `TokenMetadata`, `GitHubRateLimitedError` sem uso real, e (4ª rodada,
   focada no nó `diagnose` recém-adicionado): `_explain`/`_diagnose` duplicados viraram um
@@ -129,11 +151,11 @@ testado (unitário + validado ao vivo contra APIs reais) e commitado em `main`.
    - [x] Modos developer/support/auditor — feito (`?mode=` em `/tx/{hash}/explain`). Ver seção
      "O que já funciona".
    - [x] Gas optimization suggestions — feito (`?gas_tips=true`). Ver seção "O que já funciona".
+   - [x] Security vulnerability detection baseada em padrões conhecidos — feito, dedicada
+     (`services/security.py::detect_risk_patterns`), não só inferência do modo `auditor`. Ver
+     seção "O que já funciona".
    - [ ] Structured triage flow (perguntas esclarecedoras antes de concluir).
    - [ ] Multi-transaction analysis.
-   - [ ] Security vulnerability detection baseada em padrões conhecidos — parcialmente coberto
-     pelo modo `auditor` acima (sinaliza approvals/ownership/delegatecall inline na explicação),
-     mas ainda não é uma feature dedicada com sua própria detecção estruturada.
 6. **Frontend mínimo** — só existe um `.gitkeep` em `src/frontend/`. Deixado por último, depois
    do backend (core + bônus que entrarem) estar fechado.
 7. **README + `docs/examples.md`** — setup, config, pelo menos 3 exemplos reais de
@@ -191,7 +213,7 @@ O projeto será entregue como um repositório localmente executável, com README
 - [x] Modos de operação: developer / support / auditor.
 - [ ] Multi-transaction analysis.
 - [x] Gas optimization suggestions.
-- [ ] Security vulnerability detection baseada em padrões conhecidos (parcial via modo `auditor`).
+- [x] Security vulnerability detection baseada em padrões conhecidos.
 
 ---
 

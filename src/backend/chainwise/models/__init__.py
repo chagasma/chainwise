@@ -3,6 +3,7 @@ from chainwise.models.domain import (
     DecodedCall,
     ExplanationMode,
     RepoGroundingResult,
+    SecurityFinding,
     TokenMetadata,
 )
 
@@ -11,5 +12,6 @@ __all__ = [
     "DecodedCall",
     "ExplanationMode",
     "RepoGroundingResult",
+    "SecurityFinding",
     "TokenMetadata",
 ]

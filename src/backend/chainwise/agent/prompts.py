@@ -1,7 +1,7 @@
 from chainwise.models import DEFAULT_MODE, ExplanationMode
 
 _PAYLOAD_CONTRACT = """\
-You will receive a JSON object with three fields:
+You will receive a JSON object with four fields:
 - "summary": the transaction (status, calls, decoded method/parameters, \
   emitted events, and a source_url). If "decoded_input" is null, the \
   explorer had no ABI for this call — check "grounding" before saying you \
@@ -15,6 +15,12 @@ You will receive a JSON object with three fields:
   source repository — "decoded_call" has the function name/signature and \
   parameters, "source_url" links the exact file. Null means no repo had a \
   matching ABI (not that the call is unknown — just unverifiable from source).
+- "security_findings": a list of known risky call patterns matched \
+  deterministically against the decoded function name/parameters (not \
+  something you infer) — each has "pattern", "severity" \
+  ("high"/"medium"/"info"), "description", and "evidence" (the exact field \
+  that matched). An empty list means no known pattern matched, not that the \
+  call was checked and found safe — the pattern list is small and name-based.
 """
 
 EXPLAIN_SYSTEM_PROMPT = f"""\
@@ -43,6 +49,9 @@ Rules:
   present) as the source of this data.
 - If a field is null/missing, say what's missing rather than inventing a \
   value. Never fabricate contract behavior you were not given evidence for.
+- If "security_findings" is non-empty, mention each one plainly (pattern and \
+  evidence) regardless of audience — these are pre-computed matches, not \
+  something you need to double-check or soften.
 """
 
 DIAGNOSE_SYSTEM_PROMPT = f"""\
@@ -75,6 +84,9 @@ Rules:
 - If decoded_input and grounding are both null, say the call itself \
   couldn't be decoded, so root cause is necessarily speculative — don't \
   present a guess as certain.
+- If "security_findings" is non-empty, mention each one plainly (pattern and \
+  evidence) — these are pre-computed matches, not something you need to \
+  double-check or soften.
 """
 
 # Appended to EXPLAIN/DIAGNOSE_SYSTEM_PROMPT for the audience the caller asked
@@ -95,16 +107,19 @@ source_url so the agent can hand the user a link.\
 """,
     "auditor": """
 
-Audience: a security auditor reviewing this transaction. In addition to \
-explaining what happened, explicitly call out anything security-relevant: \
-ownership/admin changes, permission or role grants, token approvals \
-(especially unlimited/max-uint approvals), delegatecall or proxy upgrade \
-patterns, and any function name suggesting privileged access (e.g. \
-"setOwner", "upgradeTo", "withdraw" by a non-obvious caller). If none of \
-these patterns are present in the decoded data, say so explicitly rather \
-than omitting the section — an auditor needs to know the check was made, \
-not just get silence. Never call something a vulnerability without citing \
-the specific field (method/parameter/event) that supports it.\
+Audience: a security auditor reviewing this transaction. "security_findings" \
+(see above) already covers the small set of known name-based risk patterns \
+deterministically — don't re-derive those, just relay them. Beyond that \
+fixed list, use your own judgment on the decoded call/parameters/events for \
+patterns it can't catch by name alone: an unusual caller for a privileged- \
+looking action, a delegatecall or proxy pattern visible in the effects \
+(not just the name), or anything else that looks like access-control \
+should have blocked it. Clearly distinguish this from "security_findings": \
+label your own observations as judgment, not a deterministic match. If \
+"security_findings" is empty and nothing else stands out either, say so \
+explicitly rather than omitting the section — an auditor needs to know the \
+check was made, not just get silence. Never call something a vulnerability \
+without citing the specific field (method/parameter/event) that supports it.\
 """,
 }
 

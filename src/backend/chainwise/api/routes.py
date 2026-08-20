@@ -13,9 +13,9 @@ from chainwise.api.schemas import (
 )
 from chainwise.cache import ttl_cache
 from chainwise.config import NetworkConfig, Settings, get_settings, load_network
-from chainwise.models import DEFAULT_MODE
+from chainwise.models import DEFAULT_MODE, RepoGroundingResult
 from chainwise.observability import get_logger
-from chainwise.services import enrich_tokens, ground_transaction
+from chainwise.services import detect_risk_patterns, enrich_tokens, ground_transaction
 
 logger = get_logger("chainwise.api")
 
@@ -74,6 +74,31 @@ def get_transaction(
     return _get_transaction_summary(tx_hash, network)
 
 
+def _decoded_call(
+    summary: TransactionSummary, grounding: RepoGroundingResult | None
+) -> tuple[str | None, dict[str, str]]:
+    """The decoded function name + parameters, whichever source has them.
+
+    Prefers the explorer's own decode (`summary.decoded_input`); falls back
+    to repo grounding, same precedence `_build_prompt_payload` already uses
+    to decide whether grounding was worth attempting.
+    """
+    if summary.decoded_input:
+        method_call = summary.decoded_input.get("method_call") or ""
+        function_name = method_call.split("(", 1)[0] or None
+        params = {
+            p["name"]: str(p.get("value"))
+            for p in summary.decoded_input.get("parameters") or []
+            if p.get("name")
+        }
+        return function_name, params
+    if grounding:
+        return grounding.decoded_call.function, {
+            k: str(v) for k, v in grounding.decoded_call.parameters.items()
+        }
+    return None, {}
+
+
 def _build_prompt_payload(
     summary: TransactionSummary, network: NetworkConfig, settings: Settings
 ) -> LLMPromptPayload:
@@ -90,7 +115,12 @@ def _build_prompt_payload(
     if summary.decoded_input is None and "repo" in network.abi_strategy:
         grounding = ground_transaction(summary.raw_input, network, settings.github_token)
 
-    return LLMPromptPayload(summary=summary, tokens=tokens, grounding=grounding)
+    function_name, params = _decoded_call(summary, grounding)
+    security_findings = detect_risk_patterns(function_name, params)
+
+    return LLMPromptPayload(
+        summary=summary, tokens=tokens, grounding=grounding, security_findings=security_findings
+    )
 
 
 def _thread_id(tx_hash: str, mode: ExplanationMode, gas_tips: bool) -> str:
@@ -150,6 +180,7 @@ def explain_transaction(
         summary=payload.summary,
         tokens=payload.tokens,
         grounding=payload.grounding,
+        security_findings=payload.security_findings,
         explanation=explanation,
         thread_id=thread_id,
         mode=mode,

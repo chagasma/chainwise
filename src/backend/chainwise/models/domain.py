@@ -37,6 +37,22 @@ class DecodedCall(BaseModel):
     parameters: dict[str, Any]
 
 
+class SecurityFinding(BaseModel):
+    """A deterministic match against a known risky call pattern (not an LLM guess).
+
+    Produced by `services/security.py` from the decoded method name/parameters
+    only — grounded the same way `DecodedCall` is, so an "auditor"-mode
+    explanation can cite it as fact rather than inference. Lives here (not in
+    services/security.py or api/schemas.py) for the same cross-layer reason
+    as `TokenMetadata`.
+    """
+
+    pattern: str
+    severity: Literal["high", "medium", "info"]
+    description: str
+    evidence: str
+
+
 class RepoGroundingResult(BaseModel):
     """A transaction's input decoded against an ABI artifact found in a configured repo.
 
