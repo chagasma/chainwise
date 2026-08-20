@@ -22,13 +22,28 @@ def _repo_slug(repo_url: str) -> str:
     return urlparse(repo_url).path.strip("/").removesuffix(".git")
 
 
-def _extract_abi(data: Any) -> list[dict[str, Any]] | None:
-    """Accepts either a bare ABI array or a Truffle/Hardhat artifact wrapping one."""
+def _extract_abis(data: Any) -> list[list[dict[str, Any]]]:
+    """Finds every ABI array in a JSON file, whatever build tool produced it.
+
+    Handles three shapes seen in the wild:
+    - a bare ABI array,
+    - a Truffle/Hardhat/Foundry artifact ({"abi": [...], ...other build metadata}),
+    - a solc `--combined-json abi` file ({"contracts": {"file.sol:Name": {"abi": [...]}}}),
+      which can hold several contracts' worth of ABI in one file.
+    """
     if isinstance(data, list) and all(isinstance(entry, dict) for entry in data):
-        return data
-    if isinstance(data, dict) and isinstance(data.get("abi"), list):
-        return data["abi"]
-    return None
+        return [data]
+    if not isinstance(data, dict):
+        return []
+    if isinstance(data.get("abi"), list):
+        return [data["abi"]]
+    if isinstance(data.get("contracts"), dict):
+        return [
+            contract["abi"]
+            for contract in data["contracts"].values()
+            if isinstance(contract, dict) and isinstance(contract.get("abi"), list)
+        ]
+    return []
 
 
 def ground_transaction(
@@ -69,21 +84,20 @@ def _try_decode_against_file(
 ) -> RepoGroundingResult | None:
     try:
         content = github.get_file_content(repo, path)
-        abi = _extract_abi(json.loads(content))
+        abis = _extract_abis(json.loads(content))
     except (GitHubError, json.JSONDecodeError, UnicodeDecodeError) as exc:
         logger.warning(
             "repo_artifact_unreadable", extra={"repo": repo, "path": path, "error": str(exc)}
         )
         return None
-    if abi is None:
-        return None
 
-    decoded = decode_function_input(raw_input, abi)
-    if decoded is None:
-        return None
-    return RepoGroundingResult(
-        repo=repo,
-        file_path=path,
-        source_url=f"https://github.com/{repo}/blob/HEAD/{path}",
-        decoded_call=decoded,
-    )
+    for abi in abis:
+        decoded = decode_function_input(raw_input, abi)
+        if decoded is not None:
+            return RepoGroundingResult(
+                repo=repo,
+                file_path=path,
+                source_url=f"https://github.com/{repo}/blob/HEAD/{path}",
+                decoded_call=decoded,
+            )
+    return None

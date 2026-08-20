@@ -153,6 +153,31 @@ def test_ground_transaction_accepts_bare_abi_array(monkeypatch) -> None:
     assert result.decoded_call.function == "transfer"
 
 
+def test_ground_transaction_reads_solc_combined_json_with_multiple_contracts(monkeypatch) -> None:
+    """`solc --combined-json abi` output: several contracts' ABIs in one file, keyed by
+    "file.sol:ContractName" — must try each one, not just the first."""
+    combined = {
+        "contracts": {
+            "Other.sol:Other": {"abi": [{"type": "function", "name": "approve", "inputs": []}]},
+            "Token.sol:Token": {"abi": TRANSFER_ABI},
+        },
+        "version": "0.8.20+commit.deadbeef",
+    }
+    transport = _search_then_contents(
+        search_items=[{"path": "build/combined-abi.json"}],
+        contents_by_path={
+            "build/combined-abi.json": {"content": _b64(combined), "encoding": "base64"}
+        },
+    )
+    _patch_github(monkeypatch, transport)
+
+    result = ground_transaction(RAW_INPUT, NETWORK)
+
+    assert result is not None
+    assert result.file_path == "build/combined-abi.json"
+    assert result.decoded_call.function == "transfer"
+
+
 def test_ground_transaction_degrades_gracefully_when_search_fails(monkeypatch) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(503, json={})
