@@ -1,3 +1,5 @@
+from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from langchain_core.messages import HumanMessage
 from langgraph.graph.state import CompiledStateGraph
@@ -9,13 +11,20 @@ from chainwise.api.schemas import (
     ExplanationResponse,
     GreetingResponse,
     LLMPromptPayload,
+    MultiTransactionAnalysisResponse,
+    MultiTransactionPayload,
     TransactionSummary,
 )
 from chainwise.cache import ttl_cache
 from chainwise.config import NetworkConfig, Settings, get_settings, load_network
 from chainwise.models import DEFAULT_MODE, RepoGroundingResult
 from chainwise.observability import get_logger
-from chainwise.services import detect_risk_patterns, enrich_tokens, ground_transaction
+from chainwise.services import (
+    detect_relations,
+    detect_risk_patterns,
+    enrich_tokens,
+    ground_transaction,
+)
 
 logger = get_logger("chainwise.api")
 
@@ -152,21 +161,17 @@ def _thread_id(tx_hash: str, mode: ExplanationMode, gas_tips: bool) -> str:
     return tx_hash + suffix
 
 
-def _run_agent(
-    graph: CompiledStateGraph,
-    payload: LLMPromptPayload,
-    tx_hash: str,
-    mode: ExplanationMode,
-    gas_tips: bool,
-) -> tuple[str, str]:
-    thread_id = _thread_id(tx_hash, mode, gas_tips)
-    initial_state = {
-        "messages": [HumanMessage(content=payload.model_dump_json(indent=2))],
-        "reverted": payload.summary.status == "reverted",
-        "undecoded": _is_undecoded(payload),
-        "mode": mode,
-        "gas_tips": gas_tips,
-    }
+def _invoke_agent(
+    graph: CompiledStateGraph, content: str, thread_id: str, state_extra: dict[str, Any]
+) -> str:
+    """Runs the agent graph and unwraps its final message, or degrades to a 502.
+
+    Shared by every route that talks to the LLM (single-tx explain/diagnose/
+    clarify and multi-tx analyze): each just builds its own `content` (the
+    JSON payload) and `state_extra` (the routing flags in `ExplainState`),
+    this owns the invoke + error handling once.
+    """
+    initial_state = {"messages": [HumanMessage(content=content)], **state_extra}
     try:
         result = graph.invoke(initial_state, config={"configurable": {"thread_id": thread_id}})
     except Exception as exc:
@@ -175,9 +180,27 @@ def _run_agent(
         # degrade to a clear 502 rather than an unhandled 500. Logged with
         # its real type/traceback here so a genuine bug in our own node code
         # isn't mistaken for a provider outage when reading logs later.
-        logger.error("llm_explanation_failed", exc_info=exc, extra={"tx_hash": tx_hash})
+        logger.error("llm_explanation_failed", exc_info=exc, extra={"thread_id": thread_id})
         raise HTTPException(status_code=502, detail=f"LLM explanation unavailable: {exc}") from exc
-    return result["messages"][-1].content, thread_id
+    return result["messages"][-1].content
+
+
+def _run_agent(
+    graph: CompiledStateGraph,
+    payload: LLMPromptPayload,
+    tx_hash: str,
+    mode: ExplanationMode,
+    gas_tips: bool,
+) -> tuple[str, str]:
+    thread_id = _thread_id(tx_hash, mode, gas_tips)
+    state_extra = {
+        "reverted": payload.summary.status == "reverted",
+        "undecoded": _is_undecoded(payload),
+        "mode": mode,
+        "gas_tips": gas_tips,
+    }
+    explanation = _invoke_agent(graph, payload.model_dump_json(indent=2), thread_id, state_extra)
+    return explanation, thread_id
 
 
 @router.get("/tx/{tx_hash}/explain", response_model=ExplanationResponse)
@@ -202,4 +225,49 @@ def explain_transaction(
         thread_id=thread_id,
         mode=mode,
         gas_tips=gas_tips,
+    )
+
+
+def _multi_thread_id(hashes: list[str], mode: ExplanationMode) -> str:
+    """Same isolation idea as `_thread_id`, keyed on the whole (sorted, deduped) hash set."""
+    suffix = "" if mode == DEFAULT_MODE else f":{mode}"
+    return "multi:" + "+".join(hashes) + suffix
+
+
+@router.get("/analyze", response_model=MultiTransactionAnalysisResponse)
+def analyze_transactions(
+    hash: list[str] = Query(
+        ..., description="2+ transaction hashes to analyze together, e.g. ?hash=0x..&hash=0x.."
+    ),
+    mode: ExplanationMode = Query(DEFAULT_MODE, description="Audience for the explanation."),
+    network: NetworkConfig = Depends(get_network),
+    settings: Settings = Depends(get_settings),
+    graph: CompiledStateGraph = Depends(get_graph),
+) -> MultiTransactionAnalysisResponse:
+    """Explains a set of related transactions together, citing detected relations between them."""
+    hashes = list(dict.fromkeys(hash))  # dedupe, preserve caller's order
+    if len(hashes) < 2:
+        raise HTTPException(
+            status_code=400, detail="Provide at least 2 distinct transaction hashes."
+        )
+
+    summaries = [_get_transaction_summary(h, network) for h in hashes]
+    summaries.sort(key=lambda s: (s.block_number is None, s.block_number or 0))
+
+    payloads = [_build_prompt_payload(s, network, settings) for s in summaries]
+    relations = detect_relations([(s.hash, s.from_address, s.to_address) for s in summaries])
+    multi_payload = MultiTransactionPayload(transactions=payloads, relations=relations)
+
+    thread_id = _multi_thread_id([s.hash for s in summaries], mode)
+    state_extra = {"multi": True, "mode": mode}
+    explanation = _invoke_agent(
+        graph, multi_payload.model_dump_json(indent=2), thread_id, state_extra
+    )
+
+    return MultiTransactionAnalysisResponse(
+        transactions=payloads,
+        relations=relations,
+        explanation=explanation,
+        thread_id=thread_id,
+        mode=mode,
     )

@@ -128,12 +128,29 @@ testado (unitário + validado ao vivo contra APIs reais) e commitado em `main`.
   real com calldata que a Blockscout não decodificou gerou a pergunta certa
   (`needs_clarification: true`); uma transferência simples de ETH não disparou o fluxo
   (`needs_clarification: false`, resposta normal do `explain`).
+- **Multi-transaction analysis**: novo `GET /analyze?hash=0x..&hash=0x..` (2+ hashes, `mode`
+  opcional). Reaproveita quase tudo: 4º nó no grafo (`analyze_multi`, roteado por `state["multi"]`,
+  prioridade máxima no `_route` — nunca ambíguo com `reverted`/`undecoded` porque só o endpoint
+  `/analyze` seta `multi`), `_build_prompt_payload` chamado por hash pra montar cada
+  `LLMPromptPayload` (grounding, security_findings, tudo igual ao single-tx), `mode` funcionando
+  igual. `services/multi_tx.py::detect_relations` casa determinística e gratuitamente
+  `shared_sender`/`shared_counterparty` entre as transações (mesmo espírito do
+  `detect_risk_patterns` — fato pra citar, não algo pro LLM inferir sozinho), novo
+  `models.TransactionRelation`. As transações são ordenadas cronologicamente por
+  `block_number` antes de ir pro LLM (ordem real, não o LLM adivinhando). `MULTI_TX_SYSTEM_PROMPT`
+  pede pra relatar `relations` como fato e rotular qualquer conexão adicional que o LLM perceber
+  como leitura própria, não match determinístico. Extraí `_invoke_agent()` de dentro do antigo
+  `_run_agent` (agora só monta o `state_extra` do single-tx) — o invoke+tratamento de erro do
+  grafo virou reuso de verdade entre single-tx e multi-tx, não duplicado. Validado ao vivo com
+  duas transações reais da mesma conta (`approve` seguido de `stake`) — `shared_sender` detectado
+  corretamente, e o LLM distinguiu bem o fato determinístico ("mesmo sender") da própria leitura
+  ("o stake provavelmente usou o approve anterior", rotulada como não-determinística).
 - **Bug real achado testando manualmente** (não pelos testes automatizados): a Blockscout às
   vezes manda `revert_reason` como objeto decodificado (erro customizado do Solidity, mesmo shape
   do `decoded_input`), não como string — `TransactionSummary` só aceitava string e 502ava.
   Corrigido em `api/schemas.py::_revert_reason`. Reforça que testes mockados não substituem bater
   numa API real de vez em quando.
-- **94 testes** (unitários, tudo mockado via `httpx.MockTransport`/fakes — nenhum teste bate em
+- **105 testes** (unitários, tudo mockado via `httpx.MockTransport`/fakes — nenhum teste bate em
   rede real), lint (`ruff`) e typecheck (`pyright`) limpos. Rodar com `make check`.
 - **6 revisões de qualidade de código** já passaram por essa base (via skill `code-quality`) —
   achados corrigidos: deduplicação de erro/network lookup nas rotas, bug real de decode ABI
@@ -171,7 +188,8 @@ testado (unitário + validado ao vivo contra APIs reais) e commitado em `main`.
      (`services/security.py::detect_risk_patterns`), não só inferência do modo `auditor`. Ver
      seção "O que já funciona".
    - [x] Structured triage flow — feito, nó `clarify` no grafo. Ver seção "O que já funciona".
-   - [ ] Multi-transaction analysis.
+   - [x] Multi-transaction analysis — feito, `GET /analyze?hash=..&hash=..`. Ver seção "O que já
+     funciona". **Todos os 5 itens de bônus do desafio estão implementados.**
 6. **Frontend mínimo** — só existe um `.gitkeep` em `src/frontend/`. Deixado por último, depois
    do backend (core + bônus que entrarem) estar fechado.
 7. **README + `docs/examples.md`** — setup, config, pelo menos 3 exemplos reais de
@@ -227,7 +245,7 @@ O projeto será entregue como um repositório localmente executável, com README
 
 - [x] Structured triage flow (perguntas esclarecedoras antes de concluir).
 - [x] Modos de operação: developer / support / auditor.
-- [ ] Multi-transaction analysis.
+- [x] Multi-transaction analysis.
 - [x] Gas optimization suggestions.
 - [x] Security vulnerability detection baseada em padrões conhecidos.
 

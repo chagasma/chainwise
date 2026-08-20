@@ -2,7 +2,13 @@ from typing import Any, Literal, Self
 
 from pydantic import BaseModel
 
-from chainwise.models import ExplanationMode, RepoGroundingResult, SecurityFinding, TokenMetadata
+from chainwise.models import (
+    ExplanationMode,
+    RepoGroundingResult,
+    SecurityFinding,
+    TokenMetadata,
+    TransactionRelation,
+)
 
 # Re-exported: routes.py imports ExplanationMode from here (it already imports
 # the rest of this module), not from chainwise.models directly.
@@ -109,3 +115,20 @@ class ExplanationResponse(BaseModel):
     thread_id: str
     mode: ExplanationMode
     gas_tips: bool
+
+
+class MultiTransactionPayload(BaseModel):
+    """Sent to the LLM for multi-tx analysis (see agent/prompts.py::MULTI_TX_SYSTEM_PROMPT)."""
+
+    transactions: list[LLMPromptPayload]
+    relations: list[TransactionRelation]
+
+
+class MultiTransactionAnalysisResponse(BaseModel):
+    """A natural-language explanation of how a set of transactions relate to each other."""
+
+    transactions: list[LLMPromptPayload]
+    relations: list[TransactionRelation]
+    explanation: str
+    thread_id: str
+    mode: ExplanationMode

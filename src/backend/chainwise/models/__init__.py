@@ -5,6 +5,7 @@ from chainwise.models.domain import (
     RepoGroundingResult,
     SecurityFinding,
     TokenMetadata,
+    TransactionRelation,
 )
 
 __all__ = [
@@ -14,4 +15,5 @@ __all__ = [
     "RepoGroundingResult",
     "SecurityFinding",
     "TokenMetadata",
+    "TransactionRelation",
 ]

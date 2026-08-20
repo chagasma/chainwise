@@ -53,6 +53,19 @@ class SecurityFinding(BaseModel):
     evidence: str
 
 
+class TransactionRelation(BaseModel):
+    """A deterministic relationship detected between 2+ transactions being analyzed together.
+
+    Produced by `services/multi_tx.py` from the transaction summaries only —
+    same grounded-fact spirit as `SecurityFinding`, so a multi-transaction
+    explanation can cite it instead of the LLM inventing a connection.
+    """
+
+    kind: str
+    description: str
+    tx_hashes: list[str]
+
+
 class RepoGroundingResult(BaseModel):
     """A transaction's input decoded against an ABI artifact found in a configured repo.
 

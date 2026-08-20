@@ -74,6 +74,53 @@ def test_build_graph_routes_undecoded_tx_to_clarify_node(monkeypatch: Any) -> No
     assert "clarifying question" in calls[0][0].content.lower()
 
 
+def test_build_graph_routes_multi_flag_to_analyze_multi_node(monkeypatch: Any) -> None:
+    calls: list[list[Any]] = []
+
+    class _RecordingLLM:
+        def invoke(self, messages: list[Any]) -> AIMessage:
+            calls.append(messages)
+            return AIMessage(content="These transactions share a sender.")
+
+    monkeypatch.setattr(graph_module, "get_llm", lambda: _RecordingLLM())
+
+    graph = build_graph(checkpointer=InMemorySaver())
+    result = graph.invoke(
+        {
+            "messages": [HumanMessage(content='{"transactions": []}')],
+            "multi": True,
+        },
+        config={"configurable": {"thread_id": "multi:0x1+0x2"}},
+    )
+
+    assert result["messages"][-1].content == "These transactions share a sender."
+    assert "related evm transactions" in calls[0][0].content.lower()
+
+
+def test_build_graph_prefers_multi_over_reverted_and_undecoded(monkeypatch: Any) -> None:
+    calls: list[list[Any]] = []
+
+    class _RecordingLLM:
+        def invoke(self, messages: list[Any]) -> AIMessage:
+            calls.append(messages)
+            return AIMessage(content="analyzed")
+
+    monkeypatch.setattr(graph_module, "get_llm", lambda: _RecordingLLM())
+
+    graph = build_graph(checkpointer=InMemorySaver())
+    graph.invoke(
+        {
+            "messages": [HumanMessage(content='{"transactions": []}')],
+            "multi": True,
+            "reverted": True,
+            "undecoded": True,
+        },
+        config={"configurable": {"thread_id": "multi:0x1+0x2:reverted"}},
+    )
+
+    assert "related evm transactions" in calls[0][0].content.lower()
+
+
 def test_build_graph_prefers_diagnose_over_clarify_when_both_apply(monkeypatch: Any) -> None:
     calls: list[list[Any]] = []
 
