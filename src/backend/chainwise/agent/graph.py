@@ -8,16 +8,17 @@ from langgraph.graph.state import CompiledStateGraph
 
 from chainwise.agent.llm import get_llm
 from chainwise.agent.prompts import DIAGNOSE_SYSTEM_PROMPT, EXPLAIN_SYSTEM_PROMPT, MODE_ADDENDA
+from chainwise.models import DEFAULT_MODE, ExplanationMode
 
 
 class ExplainState(MessagesState):
     reverted: bool
-    mode: str
+    mode: ExplanationMode
 
 
 def _run_llm_node(state: ExplainState, prompt: str) -> dict[str, Any]:
     llm = get_llm()
-    prompt += MODE_ADDENDA.get(state.get("mode", "developer"), "")
+    prompt += MODE_ADDENDA.get(state.get("mode", DEFAULT_MODE), "")
     response = llm.invoke([SystemMessage(content=prompt), *state["messages"]])
     return {"messages": [response]}
 

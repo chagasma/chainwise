@@ -1,3 +1,15 @@
-from chainwise.models.domain import DecodedCall, RepoGroundingResult, TokenMetadata
+from chainwise.models.domain import (
+    DEFAULT_MODE,
+    DecodedCall,
+    ExplanationMode,
+    RepoGroundingResult,
+    TokenMetadata,
+)
 
-__all__ = ["DecodedCall", "RepoGroundingResult", "TokenMetadata"]
+__all__ = [
+    "DEFAULT_MODE",
+    "DecodedCall",
+    "ExplanationMode",
+    "RepoGroundingResult",
+    "TokenMetadata",
+]

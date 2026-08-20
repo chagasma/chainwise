@@ -68,6 +68,14 @@ testado (unitário + validado ao vivo contra APIs reais) e commitado em `main`.
   histórico com o modo `developer` (que mantém `thread_id == tx_hash` pra não quebrar checkpoints
   existentes). Validado ao vivo nos 3 modos contra a mesma tx real — `auditor` de fato sinalizou o
   padrão `execute(bytes)` como sensível e disse explicitamente que não achou troca de ownership.
+  **5ª revisão de qualidade** (via skill `code-quality`, focada nessa feature): achado principal
+  foi `"developer"` como string mágica duplicada em 4 lugares sem fonte única de verdade — corrigido
+  movendo `ExplanationMode`/`DEFAULT_MODE` pra `models/domain.py` (mesmo padrão já usado por
+  `TokenMetadata`: tipo compartilhado entre `agent/` e `api/` sem import cruzado entre as camadas)
+  e retipando `MODE_ADDENDA`/`ExplainState.mode` de `dict[str, str]`/`str` pra
+  `dict[ExplanationMode, str]`/`ExplanationMode` (um `mode` digitado errado agora é erro de
+  typecheck, não um addendum silenciosamente ignorado). Revisão confirmou que a separação
+  `reverted`/`mode` no grafo é limpa — não virou espaguete.
 - **Bug real achado testando manualmente** (não pelos testes automatizados): a Blockscout às
   vezes manda `revert_reason` como objeto decodificado (erro customizado do Solidity, mesmo shape
   do `decoded_input`), não como string — `TransactionSummary` só aceitava string e 502ava.
@@ -75,7 +83,7 @@ testado (unitário + validado ao vivo contra APIs reais) e commitado em `main`.
   numa API real de vez em quando.
 - **76 testes** (unitários, tudo mockado via `httpx.MockTransport`/fakes — nenhum teste bate em
   rede real), lint (`ruff`) e typecheck (`pyright`) limpos. Rodar com `make check`.
-- **4 revisões de qualidade de código** já passaram por essa base (via skill `code-quality`) —
+- **5 revisões de qualidade de código** já passaram por essa base (via skill `code-quality`) —
   achados corrigidos: deduplicação de erro/network lookup nas rotas, bug real de decode ABI
   vazio, layering de `TokenMetadata`, `GitHubRateLimitedError` sem uso real, e (4ª rodada,
   focada no nó `diagnose` recém-adicionado): `_explain`/`_diagnose` duplicados viraram um
@@ -85,6 +93,7 @@ testado (unitário + validado ao vivo contra APIs reais) e commitado em `main`.
   `explain_transaction` em `api/routes.py` foi quebrado em `_build_prompt_payload`/`_run_agent`;
   `NetworkConfig.abi_strategy` (que existia mas nunca era lido) agora é checado de fato antes de
   chamar `ground_transaction`; `RPCClient.get_code` (código morto, sem chamador) foi removido.
+  5ª rodada (feature de modos) detalhada no bullet "Modos developer/support/auditor" acima.
 
 ### O que falta (nessa ordem sugerida)
 

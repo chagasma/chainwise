@@ -1,6 +1,13 @@
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel
+
+ExplanationMode = Literal["developer", "support", "auditor"]
+"""Audience for a /tx/{hash}/explain response. Lives here (not api/schemas.py
+or agent/prompts.py) so both layers can depend on it without either importing
+the other — same reasoning as `TokenMetadata` below."""
+
+DEFAULT_MODE: ExplanationMode = "developer"
 
 
 class TokenMetadata(BaseModel):

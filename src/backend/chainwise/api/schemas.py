@@ -2,9 +2,11 @@ from typing import Any, Literal, Self
 
 from pydantic import BaseModel
 
-from chainwise.models import RepoGroundingResult, TokenMetadata
+from chainwise.models import ExplanationMode, RepoGroundingResult, TokenMetadata
 
-ExplanationMode = Literal["developer", "support", "auditor"]
+# Re-exported: routes.py imports ExplanationMode from here (it already imports
+# the rest of this module), not from chainwise.models directly.
+__all__ = ["ExplanationMode"]
 
 
 def _nested(d: dict[str, Any] | None, key: str) -> Any | None:

@@ -13,6 +13,7 @@ from chainwise.api.schemas import (
 )
 from chainwise.cache import ttl_cache
 from chainwise.config import NetworkConfig, Settings, get_settings, load_network
+from chainwise.models import DEFAULT_MODE
 from chainwise.observability import get_logger
 from chainwise.services import enrich_tokens, ground_transaction
 
@@ -96,10 +97,10 @@ def _run_agent(
     graph: CompiledStateGraph, payload: LLMPromptPayload, tx_hash: str, mode: ExplanationMode
 ) -> tuple[str, str]:
     # Isolate the checkpointed conversation per mode too: same thread_id for
-    # the default "developer" mode keeps existing checkpoints/tests valid,
-    # other modes get their own thread so a support-toned answer never lands
-    # in an auditor's message history for the same tx.
-    thread_id = tx_hash if mode == "developer" else f"{tx_hash}:{mode}"
+    # DEFAULT_MODE keeps existing checkpoints/tests valid, other modes get
+    # their own thread so a support-toned answer never lands in an auditor's
+    # message history for the same tx.
+    thread_id = tx_hash if mode == DEFAULT_MODE else f"{tx_hash}:{mode}"
     initial_state = {
         "messages": [HumanMessage(content=payload.model_dump_json(indent=2))],
         "reverted": payload.summary.status == "reverted",
@@ -121,7 +122,7 @@ def _run_agent(
 @router.get("/tx/{tx_hash}/explain", response_model=ExplanationResponse)
 def explain_transaction(
     tx_hash: str,
-    mode: ExplanationMode = Query("developer", description="Audience for the explanation."),
+    mode: ExplanationMode = Query(DEFAULT_MODE, description="Audience for the explanation."),
     network: NetworkConfig = Depends(get_network),
     settings: Settings = Depends(get_settings),
     graph: CompiledStateGraph = Depends(get_graph),

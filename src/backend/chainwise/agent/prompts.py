@@ -1,3 +1,5 @@
+from chainwise.models import DEFAULT_MODE, ExplanationMode
+
 _PAYLOAD_CONTRACT = """\
 You will receive a JSON object with three fields:
 - "summary": the transaction (status, calls, decoded method/parameters, \
@@ -76,10 +78,11 @@ Rules:
 """
 
 # Appended to EXPLAIN/DIAGNOSE_SYSTEM_PROMPT for the audience the caller asked
-# for (?mode=... on /tx/{hash}/explain). "developer" is the base prompt above
-# as-is, so it has no addendum here.
-MODE_ADDENDA: dict[str, str] = {
-    "developer": "",
+# for (?mode=... on /tx/{hash}/explain). DEFAULT_MODE is the base prompt above
+# as-is, so it has no addendum — a dict[ExplanationMode, str] (not dict[str, str])
+# means a typo'd mode key is a type-check error, not a silently-dropped addendum.
+MODE_ADDENDA: dict[ExplanationMode, str] = {
+    DEFAULT_MODE: "",
     "support": """
 
 Audience: a support agent relaying this to a non-technical end user, not a \
