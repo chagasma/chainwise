@@ -63,3 +63,11 @@ class TransactionSummary(BaseModel):
             ],
             source_url=f"{explorer_url.rstrip('/')}/tx/{tx['hash']}",
         )
+
+
+class ExplanationResponse(BaseModel):
+    """A natural-language explanation, grounded in the underlying transaction data."""
+
+    summary: TransactionSummary
+    explanation: str
+    thread_id: str

@@ -5,7 +5,7 @@ DOCKER_IMAGE := chainwise-backend:local
 .DEFAULT_GOAL := help
 
 .PHONY: help install dev backend frontend lint typecheck test check \
-	docker-build docker-run docker-stop clean
+	docker-build docker-run docker-stop db-up db-down clean
 
 help: ## Show available commands
 	@grep -E '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
@@ -13,7 +13,14 @@ help: ## Show available commands
 install: ## Sync the backend virtualenv (uv) with the lockfile
 	cd $(BACKEND_DIR) && uv sync
 
-dev: install ## Run backend (and frontend, if present) locally
+db-up: ## Start the local Postgres (used for LangGraph checkpoints)
+	docker compose up -d postgres
+	@until docker compose exec -T postgres pg_isready -U chainwise >/dev/null 2>&1; do sleep 1; done
+
+db-down: ## Stop the local Postgres
+	docker compose stop postgres
+
+dev: install db-up ## Run backend (and frontend, if present) locally
 	@trap 'kill 0' EXIT; \
 	( cd $(BACKEND_DIR) && uv run uvicorn chainwise.main:app --reload --port 8000 ) & \
 	if [ -f "$(FRONTEND_DIR)/package.json" ]; then \
@@ -23,7 +30,7 @@ dev: install ## Run backend (and frontend, if present) locally
 	fi; \
 	wait
 
-backend: install ## Run only the backend, with reload
+backend: install db-up ## Run only the backend, with reload
 	cd $(BACKEND_DIR) && uv run uvicorn chainwise.main:app --reload --port 8000
 
 lint: install ## Lint the backend with ruff
