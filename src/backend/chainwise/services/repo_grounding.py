@@ -23,14 +23,9 @@ def _repo_slug(repo_url: str) -> str:
 
 
 def _extract_abis(data: Any) -> list[list[dict[str, Any]]]:
-    """Finds every ABI array in a JSON file, whatever build tool produced it.
-
-    Handles three shapes seen in the wild:
-    - a bare ABI array,
-    - a Truffle/Hardhat/Foundry artifact ({"abi": [...], ...other build metadata}),
-    - a solc `--combined-json abi` file ({"contracts": {"file.sol:Name": {"abi": [...]}}}),
-      which can hold several contracts' worth of ABI in one file.
-    """
+    """Finds every ABI array in a JSON file, whatever build tool produced it:
+    a bare ABI array, a Truffle/Hardhat/Foundry artifact ({"abi": [...]}), or
+    a solc `--combined-json abi` file (several contracts per file)."""
     if isinstance(data, list) and all(isinstance(entry, dict) for entry in data):
         return [data]
     if not isinstance(data, dict):
@@ -49,14 +44,9 @@ def _extract_abis(data: Any) -> list[list[dict[str, Any]]]:
 def ground_transaction(
     raw_input: str | None, network: NetworkConfig, github_token: str = ""
 ) -> RepoGroundingResult | None:
-    """Best-effort ABI-fallback grounding: decode `raw_input` against an artifact
-    found in one of `network.repos`, for use when the explorer had no ABI to decode it.
-
-    Every failure mode (repo unreachable, rate-limited, file isn't valid JSON,
-    no function in the artifact matches) is non-fatal: it just means this
-    repo/file isn't the source, so the search moves on. Returns None rather
-    than raising when nothing matches anywhere.
-    """
+    """Best-effort ABI-fallback grounding: decode `raw_input` against an
+    artifact found in one of `network.repos`, for when the explorer had no
+    ABI. Every failure mode is non-fatal — the search just moves on."""
     if not raw_input or raw_input == "0x" or not network.repos:
         return None
 

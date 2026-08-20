@@ -12,14 +12,9 @@ def function_selector(signature: str) -> str:
 
 
 def _canonical_type(param: dict[str, Any]) -> str:
-    """Resolves an ABI parameter's canonical type string, recursing into tuples.
-
-    A plain `param["type"]` is enough for primitives ("uint256", "address[]"),
-    but Solidity's ABI signature for a struct uses the fully expanded
-    component list ("(uint256,address)"), not the literal word "tuple" the
-    JSON ABI uses — get this wrong and every selector for a function taking
-    a struct argument comes out wrong.
-    """
+    """Resolves an ABI parameter's canonical type, recursing into tuples.
+    Solidity's signature for a struct needs the expanded component list
+    ("(uint256,address)"), not the literal word "tuple" the JSON ABI uses."""
     param_type: str = param["type"]
     if not param_type.startswith("tuple"):
         return param_type
@@ -47,9 +42,8 @@ def find_function_abi(abi: list[dict[str, Any]], selector: str) -> dict[str, Any
 
 
 def _jsonify(value: Any) -> Any:
-    """Mirrors TransactionSummary.value_wei: stringify ints (uint256 loses precision as JSON
-    numbers) and hex-encode bytes, so DecodedCall.parameters round-trips through model_dump_json.
-    """
+    """Stringifies ints (uint256 loses precision as a JSON number) and
+    hex-encodes bytes, mirroring TransactionSummary.value_wei."""
     if isinstance(value, bool):
         return value
     if isinstance(value, int):
@@ -62,12 +56,9 @@ def _jsonify(value: Any) -> Any:
 
 
 def decode_function_input(input_data: str, abi: list[dict[str, Any]]) -> DecodedCall | None:
-    """Decodes `input_data` (0x-prefixed calldata) against the first matching ABI entry.
-
-    Returns None rather than raising when there's no match or the calldata
-    doesn't fit the matched entry's types — an unmatched artifact isn't an
-    error, it's just not the right one (see repo_grounding, which tries more).
-    """
+    """Decodes `input_data` (0x-prefixed calldata) against the first matching
+    ABI entry. Returns None on no match rather than raising — an unmatched
+    artifact isn't an error, it's just not the right one."""
     data = bytes.fromhex(input_data.removeprefix("0x"))
     if len(data) < 4:
         return None

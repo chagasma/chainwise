@@ -8,13 +8,10 @@ F = TypeVar("F", bound=Callable[..., Any])
 
 
 def ttl_cache(seconds: float, maxsize: int = 256) -> Callable[[F], F]:
-    """Memoizes a function's return value for `seconds`, keyed by its (hashable) args.
-
+    """Memoizes a function's return value for `seconds`, keyed by its args.
     Unlike `functools.lru_cache`, entries expire — needed for data that's
-    usually immutable (a mined tx) but occasionally isn't yet (still
-    "pending"). A failed call (raises) is never cached, so a transient
-    adapter error doesn't get "stuck" until expiry.
-    """
+    usually immutable (a mined tx) but occasionally still "pending". A
+    failed call is never cached."""
 
     def decorator(func: F) -> F:
         store: dict[tuple[Any, ...], tuple[float, Any]] = {}

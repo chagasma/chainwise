@@ -6,16 +6,10 @@ from chainwise.models import TransactionRelation
 def detect_relations(
     transactions: list[tuple[str, str, str | None]],
 ) -> list[TransactionRelation]:
-    """Deterministic relationships among a set of transactions being analyzed together.
-
-    `transactions` is a list of `(tx_hash, from_address, to_address)` —
-    primitives, not `TransactionSummary`, so this stays independent of the
-    api layer (mirrors `services/security.py` taking a bare function name
-    instead of a `TransactionSummary`). Cheap (no I/O, no LLM): a fact the
-    LLM can cite, not something it has to spot itself. Returns [] when no
-    pattern matched, which doesn't mean the transactions are unrelated —
-    only that they don't share a sender or a called contract.
-    """
+    """Deterministic relationships among a set of transactions analyzed together.
+    Takes bare `(tx_hash, from_address, to_address)` tuples, not
+    `TransactionSummary`, to stay independent of the api layer. [] means no
+    shared sender/contract, not that the transactions are unrelated."""
     by_sender: dict[str, list[str]] = defaultdict(list)
     by_counterparty: dict[str, list[str]] = defaultdict(list)
     for tx_hash, from_address, to_address in transactions:

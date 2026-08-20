@@ -1,11 +1,10 @@
-from typing import Any
-
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from langchain_core.messages import HumanMessage
 from langgraph.graph.state import CompiledStateGraph
 from pydantic import ValidationError
 
 from chainwise.adapters import AdapterError, AdapterNotFoundError, BlockscoutClient
+from chainwise.agent.graph import ExplainState, ExplainStateExtra
 from chainwise.api.schemas import (
     ExplanationMode,
     ExplanationResponse,
@@ -42,9 +41,7 @@ def get_graph(request: Request) -> CompiledStateGraph:
 def _translate_adapter_error(exc: Exception, source_name: str) -> HTTPException:
     """Maps an adapter failure to the HTTP response it should become.
 
-    Shared by every route that talks to an external adapter, so a new
-    adapter (RPC, GitHub, ...) gets consistent error handling for free
-    instead of each route re-deriving its own status-code mapping.
+    Shared by every route that talks to an external adapter.
     """
     if isinstance(exc, AdapterNotFoundError):
         return HTTPException(status_code=404, detail=str(exc))
@@ -86,12 +83,8 @@ def get_transaction(
 def _decoded_call(
     summary: TransactionSummary, grounding: RepoGroundingResult | None
 ) -> tuple[str | None, dict[str, str]]:
-    """The decoded function name + parameters, whichever source has them.
-
-    Prefers the explorer's own decode (`summary.decoded_input`); falls back
-    to repo grounding, same precedence `_build_prompt_payload` already uses
-    to decide whether grounding was worth attempting.
-    """
+    """The decoded function name + parameters: prefers the explorer's own
+    decode, falls back to repo grounding."""
     if summary.decoded_input:
         method_call = summary.decoded_input.get("method_call") or ""
         function_name = method_call.split("(", 1)[0] or None
@@ -118,8 +111,7 @@ def _build_prompt_payload(
     }
     tokens = enrich_tokens(transfer_addresses, network)
 
-    # Repo grounding only runs when the network's abi_strategy allows it and
-    # the explorer itself had no ABI to decode the call with.
+    # Only when the explorer had no ABI and the network allows repo grounding.
     grounding = None
     if summary.decoded_input is None and "repo" in network.abi_strategy:
         grounding = ground_transaction(summary.raw_input, network, settings.github_token)
@@ -134,36 +126,22 @@ def _build_prompt_payload(
 
 def _is_undecoded(payload: LLMPromptPayload) -> bool:
     """True when there was a real call to decode and neither the explorer nor
-    repo grounding managed to decode it.
-
-    Excludes a plain ETH transfer (`raw_input in (None, "0x")`): a bare
-    transfer has nothing to decode because there's no calldata, not because
-    data is missing, so it shouldn't trigger a clarifying question. Single
-    source of truth for the condition, used both to pick the graph's
-    "clarify" branch and to set the response's `needs_clarification` flag —
-    they must always agree.
+    repo grounding managed to decode it. Excludes a plain ETH transfer
+    (no calldata to decode in the first place). Single source of truth,
+    used both for the graph's "clarify" branch and `needs_clarification`.
     """
     has_calldata = payload.summary.raw_input not in (None, "0x")
     return has_calldata and payload.summary.decoded_input is None and payload.grounding is None
 
 
 def _mode_suffix(mode: ExplanationMode) -> str:
-    """`""` for DEFAULT_MODE (keeps existing thread ids/checkpoints unaffected), else `:{mode}`.
-
-    Shared by `_thread_id` and `_multi_thread_id` so the two don't quietly
-    drift into different isolation rules.
-    """
+    """`""` for DEFAULT_MODE (keeps existing thread ids unaffected), else `:{mode}`."""
     return "" if mode == DEFAULT_MODE else f":{mode}"
 
 
 def _thread_id(tx_hash: str, mode: ExplanationMode, gas_tips: bool) -> str:
-    """Isolates the checkpointed conversation per (mode, gas_tips) combination.
-
-    The all-default case (DEFAULT_MODE, no gas tips) keeps thread_id ==
-    tx_hash, so existing checkpoints/tests are unaffected; any other
-    combination gets its own thread so, e.g., a support-toned answer never
-    lands in an auditor's message history for the same tx.
-    """
+    """Isolates the checkpointed conversation per (mode, gas_tips) combination,
+    so e.g. a support-toned answer never lands in an auditor's history."""
     suffix = _mode_suffix(mode)
     if gas_tips:
         suffix += ":gas"
@@ -171,24 +149,16 @@ def _thread_id(tx_hash: str, mode: ExplanationMode, gas_tips: bool) -> str:
 
 
 def _invoke_agent(
-    graph: CompiledStateGraph, content: str, thread_id: str, state_extra: dict[str, Any]
+    graph: CompiledStateGraph, content: str, thread_id: str, state_extra: ExplainStateExtra
 ) -> str:
     """Runs the agent graph and unwraps its final message, or degrades to a 502.
-
-    Shared by every route that talks to the LLM (single-tx explain/diagnose/
-    clarify and multi-tx analyze): each just builds its own `content` (the
-    JSON payload) and `state_extra` (the routing flags in `ExplainState`),
-    this owns the invoke + error handling once.
-    """
-    initial_state = {"messages": [HumanMessage(content=content)], **state_extra}
+    Shared by every route that talks to the LLM."""
+    initial_state: ExplainState = {"messages": [HumanMessage(content=content)], **state_extra}
     try:
         result = graph.invoke(initial_state, config={"configurable": {"thread_id": thread_id}})
     except Exception as exc:
-        # Provider SDKs raise a wide variety of exception types (connection,
-        # rate limit, auth, malformed response, ...) — any of them must
-        # degrade to a clear 502 rather than an unhandled 500. Logged with
-        # its real type/traceback here so a genuine bug in our own node code
-        # isn't mistaken for a provider outage when reading logs later.
+        # Provider SDKs raise many exception types; degrade all of them to a
+        # clear 502 with the real traceback logged, instead of an unhandled 500.
         logger.error("llm_explanation_failed", exc_info=exc, extra={"thread_id": thread_id})
         raise HTTPException(status_code=502, detail=f"LLM explanation unavailable: {exc}") from exc
     return result["messages"][-1].content
@@ -202,7 +172,7 @@ def _run_agent(
     gas_tips: bool,
 ) -> tuple[str, str]:
     thread_id = _thread_id(tx_hash, mode, gas_tips)
-    state_extra = {
+    state_extra: ExplainStateExtra = {
         "reverted": payload.summary.status == "reverted",
         "undecoded": _is_undecoded(payload),
         "mode": mode,
@@ -267,7 +237,7 @@ def analyze_transactions(
     multi_payload = MultiTransactionPayload(transactions=payloads, relations=relations)
 
     thread_id = _multi_thread_id([s.hash for s in summaries], mode)
-    state_extra = {"multi": True, "mode": mode}
+    state_extra: ExplainStateExtra = {"multi": True, "mode": mode}
     explanation = _invoke_agent(
         graph, multi_payload.model_dump_json(indent=2), thread_id, state_extra
     )

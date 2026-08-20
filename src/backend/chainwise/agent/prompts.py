@@ -23,6 +23,14 @@ You will receive a JSON object with four fields:
   call was checked and found safe — the pattern list is small and name-based.
 """
 
+_CITE_AND_FINDINGS_RULES = """\
+- Always cite the source_url from the summary (and from grounding, when \
+  present) as the source of this data.
+- If "security_findings" is non-empty, mention each one plainly (pattern and \
+  evidence) — these are pre-computed matches, not something you need to \
+  double-check or soften.\
+"""
+
 EXPLAIN_SYSTEM_PROMPT = f"""\
 You are ChainWise, an assistant that explains EVM transactions in plain, \
 accurate language for developers.
@@ -45,13 +53,9 @@ Rules:
 - If the transaction reverted, state the revert reason if present and the \
   most likely root cause; if the reason is missing, say so explicitly \
   instead of guessing one.
-- Always cite the source_url from the summary (and from grounding, when \
-  present) as the source of this data.
 - If a field is null/missing, say what's missing rather than inventing a \
   value. Never fabricate contract behavior you were not given evidence for.
-- If "security_findings" is non-empty, mention each one plainly (pattern and \
-  evidence) regardless of audience — these are pre-computed matches, not \
-  something you need to double-check or soften.
+{_CITE_AND_FINDINGS_RULES}
 """
 
 DIAGNOSE_SYSTEM_PROMPT = f"""\
@@ -79,14 +83,10 @@ Structure your answer in three parts:
 Rules:
 - Never invent a revert reason that wasn't given or plausibly inferable from \
   decoded call data.
-- Always cite the source_url from the summary (and from grounding, when \
-  present).
 - If decoded_input and grounding are both null, say the call itself \
   couldn't be decoded, so root cause is necessarily speculative — don't \
   present a guess as certain.
-- If "security_findings" is non-empty, mention each one plainly (pattern and \
-  evidence) — these are pre-computed matches, not something you need to \
-  double-check or soften.
+{_CITE_AND_FINDINGS_RULES}
 """
 
 CLARIFY_SYSTEM_PROMPT = f"""\

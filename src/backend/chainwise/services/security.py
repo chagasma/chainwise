@@ -4,13 +4,10 @@ from chainwise.models import SecurityFinding
 
 _Severity = Literal["high", "medium", "info"]
 
-# Function-name -> (severity, description). Matched against the bare name
-# (no signature, no args) of a decoded call, case-insensitively — deliberately
-# name-based rather than selector-based: these are conventional Solidity
-# names, not a standard, so this is a heuristic, not a guarantee (a contract
-# could name a harmless function "upgradeTo"). Grounded in the decoded call
-# itself, not the LLM's judgment, which is the point: an auditor gets a fact
-# ("this call matches a known admin-function name"), not an opinion.
+# Function-name -> (severity, description), matched case-insensitively against
+# a decoded call's bare name. Heuristic, not a guarantee: these are
+# conventional Solidity names, not a standard, so a contract could name a
+# harmless function "upgradeTo".
 _NAME_PATTERNS: dict[str, tuple[_Severity, str]] = {
     "transferownership": ("high", "Transfers contract ownership to a new address."),
     "setowner": ("high", "Changes the contract's owner/admin address."),
@@ -30,13 +27,9 @@ _MAX_UINT256 = str(2**256 - 1)
 def detect_risk_patterns(
     function_name: str | None, parameters: dict[str, str]
 ) -> list[SecurityFinding]:
-    """Matches a decoded call's bare function name/parameters against known risky patterns.
-
-    Deterministic and cheap (no I/O, no LLM) — called on every /explain
-    request regardless of `mode`, unlike the mode/gas_tips prompt addenda.
-    Returns [] when nothing matches or nothing was decoded, which is the
-    common case and not itself suspicious.
-    """
+    """Matches a decoded call's bare function name/parameters against known
+    risky patterns. Deterministic, no I/O/LLM. [] means nothing matched,
+    which is the common case, not itself suspicious."""
     if not function_name:
         return []
 
