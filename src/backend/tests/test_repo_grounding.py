@@ -15,7 +15,7 @@ NETWORK = NetworkConfig(
     chain_id=1,
     explorer_url="https://explorer.example",
     rpc_url="https://rpc.example",
-    repos=[REPO_URL],
+    repos=(REPO_URL,),
 )
 
 TRANSFER_ABI = [

@@ -25,7 +25,9 @@ class RPCClient(HttpAdapter):
         transport: httpx.BaseTransport | None = None,
     ) -> None:
         self._rpc_url = rpc_url
-        self._client = httpx.Client(timeout=timeout, transport=transport)
+        self._client = httpx.Client(
+            timeout=timeout, transport=transport or self._default_transport()
+        )
         self._next_id = 1
 
     def eth_call(self, to: str, data: str, block: str = "latest") -> str:

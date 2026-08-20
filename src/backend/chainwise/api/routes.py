@@ -10,6 +10,7 @@ from chainwise.api.schemas import (
     LLMPromptPayload,
     TransactionSummary,
 )
+from chainwise.cache import ttl_cache
 from chainwise.config import NetworkConfig, Settings, get_settings, load_network
 from chainwise.observability import get_logger
 from chainwise.services import enrich_tokens, ground_transaction
@@ -53,6 +54,7 @@ def active_network(network: NetworkConfig = Depends(get_network)) -> NetworkConf
     return network
 
 
+@ttl_cache(seconds=30)
 def _get_transaction_summary(tx_hash: str, network: NetworkConfig) -> TransactionSummary:
     with BlockscoutClient(network.explorer_url) as client:
         try:

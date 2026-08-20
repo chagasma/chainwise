@@ -15,7 +15,7 @@ NETWORK = NetworkConfig(
     chain_id=1,
     explorer_url="https://explorer.example",
     rpc_url="https://rpc.example",
-    repos=[],
+    repos=(),
 )
 
 def _abi_encode_string(value: str) -> str:

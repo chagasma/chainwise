@@ -33,7 +33,9 @@ class BlockscoutClient(HttpAdapter):
         transport: httpx.BaseTransport | None = None,
     ) -> None:
         self._client = httpx.Client(
-            base_url=explorer_url.rstrip("/"), timeout=timeout, transport=transport
+            base_url=explorer_url.rstrip("/"),
+            timeout=timeout,
+            transport=transport or self._default_transport(),
         )
 
     def get_transaction(self, tx_hash: str) -> dict[str, Any]:

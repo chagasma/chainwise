@@ -12,7 +12,7 @@ def test_load_network_returns_valid_config(network: str) -> None:
     assert config.explorer_url.startswith("https://")
     assert config.rpc_url.startswith("https://")
     assert config.repos
-    assert config.abi_strategy == ["explorer", "repo"]
+    assert config.abi_strategy == ("explorer", "repo")
 
 
 def test_load_network_raises_for_unknown_network() -> None:

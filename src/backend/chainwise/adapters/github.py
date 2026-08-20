@@ -51,7 +51,10 @@ class GitHubClient(HttpAdapter):
         if token:
             headers["Authorization"] = f"Bearer {token}"
         self._client = httpx.Client(
-            base_url=self.BASE_URL, timeout=timeout, transport=transport, headers=headers
+            base_url=self.BASE_URL,
+            timeout=timeout,
+            transport=transport or self._default_transport(),
+            headers=headers,
         )
 
     def search_code(self, repo: str, query: str) -> list[dict[str, Any]]:

@@ -13,6 +13,17 @@ class HttpAdapter:
 
     _client: httpx.Client
 
+    @staticmethod
+    def _default_transport(retries: int = 2) -> httpx.HTTPTransport:
+        """A transport that retries connection failures — httpx's own retry support.
+
+        Only used when the caller didn't pass one (production); tests always
+        pass an `httpx.MockTransport`, so this never touches real network I/O
+        in the suite. Doesn't retry on HTTP error status codes, only on
+        connection-level failures (DNS, refused, timeout on connect).
+        """
+        return httpx.HTTPTransport(retries=retries)
+
     def close(self) -> None:
         self._client.close()
 
