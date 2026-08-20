@@ -5,7 +5,7 @@ DOCKER_IMAGE := chainwise-backend:local
 .DEFAULT_GOAL := help
 
 .PHONY: help install dev backend frontend lint typecheck test check \
-	docker-build docker-run docker-stop db-up db-down clean
+	docker-build docker-run docker-stop db-up db-down up down clean
 
 help: ## Show available commands
 	@grep -E '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
@@ -43,6 +43,12 @@ test: install ## Run backend tests
 	cd $(BACKEND_DIR) && uv run pytest -q
 
 check: lint typecheck test ## Run lint + typecheck + test
+
+up: ## Run the full stack (Postgres + backend) via docker compose
+	docker compose up --build backend
+
+down: ## Stop the full stack started with `make up`
+	docker compose down
 
 docker-build: ## Build the optimized backend Docker image
 	docker build -t $(DOCKER_IMAGE) $(BACKEND_DIR)

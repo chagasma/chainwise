@@ -22,11 +22,14 @@ testado (unitário + validado ao vivo contra APIs reais) e commitado em `main`.
   fora do ar agora (redirecionando pra `gnosisscan.io`, que não é Blockscout-compatible) — ver
   "Problemas conhecidos" abaixo. Isso não é bug nosso: validamos que o `BlockscoutClient`
   degrada graciosamente (502 com mensagem clara) exatamente como devia.
-- **Adapters** (`adapters/`): `BlockscoutClient` (tx/receipt/logs), `RPCClient` (`eth_call`/
-  `eth_getCode` via JSON-RPC puro, sem `web3.py`), `GitHubClient` (code search + file contents).
-  Todos seguem o mesmo padrão: client HTTP burro, erros tipados (`AdapterError`/
-  `AdapterNotFoundError` e subclasses por adapter), tratados uniformemente em
-  `api/routes.py::_translate_adapter_error`.
+- **Adapters** (`adapters/`): `BlockscoutClient` (tx/receipt/logs), `RPCClient` (`eth_call` via
+  JSON-RPC puro, sem `web3.py`), `GitHubClient` (code search + file contents). Todos herdam
+  `adapters/base.py::HttpAdapter` (lifecycle do `httpx.Client` + context manager) e seguem o
+  mesmo padrão: client HTTP burro, erros tipados (`AdapterError`/`AdapterNotFoundError` e
+  subclasses por adapter), tratados uniformemente em `api/routes.py::_translate_adapter_error`.
+  Retries automáticos em falha de conexão via `httpx.HTTPTransport(retries=2)` (nativo do httpx,
+  não custom) em produção; testes sempre injetam `httpx.MockTransport`, então nunca retryam de
+  verdade.
 - **Enrichment de tokens** (`services/enricher.py`): resolve `symbol`/`decimals` ERC-20 via
   `eth_call`, decodificação ABI feita na mão (sem `eth_abi` — só 2 tipos primitivos), com
   bounds-check contra resposta vazia (`"0x"`) mascarando falha como sucesso.
@@ -38,12 +41,25 @@ testado (unitário + validado ao vivo contra APIs reais) e commitado em `main`.
   tuples), decodifica o calldata e cita o arquivo exato no GitHub. Precisa de `GITHUB_TOKEN`
   pra funcionar de verdade (a API de code search do GitHub exige auth) — sem token, degrada
   graciosamente pra "sem grounding" (log em `info`, não crasha nada).
-- **Agent** (`agent/`): grafo LangGraph de 1 nó (`explain`), checkpointer Postgres, LLM via
-  OpenRouter (`langchain_openai.ChatOpenAI`). Ver ADR 0002 pra justificativa completa.
+- **Agent** (`agent/`): grafo LangGraph com 2 nós (`explain`/`diagnose`, ramificados por
+  `reverted`), checkpointer Postgres, LLM via OpenRouter (`langchain_openai.ChatOpenAI`). Ver
+  ADR 0002 pra justificativa completa.
 - **Config de rede**: `ethereum-mainnet`, `gnosis-chain`, `polygon-pos` (YAML por rede, ver
-  ADR 0001).
-- **67 testes** (unitários, tudo mockado via `httpx.MockTransport` — nenhum teste bate em rede
-  real), lint (`ruff`) e typecheck (`pyright`) limpos. Rodar com `make check`.
+  ADR 0001). `NetworkConfig` é `frozen` com campos `tuple` (não `list`) — precisa ser hashável
+  pro cache abaixo poder usar `network` como parte da chave.
+- **Cache local** (`chainwise/cache.py::ttl_cache`): TTL cache simples (dict + lock, sem
+  dependência nova) aplicado em `_get_transaction_summary` (30s) — evita bater na Blockscout de
+  novo pra `/tx/{hash}` e `/tx/{hash}/explain` na mesma janela curta. Erros nunca são cacheados
+  (só sucesso). Isolamento de teste garantido por um `autouse fixture` em `tests/conftest.py` que
+  limpa o cache antes de cada teste.
+- **Docker Compose cobrindo o backend**: `docker-compose.yml` agora sobe `postgres` + `backend`
+  juntos (`make up` / `make down`), com `backend` lendo `src/backend/.env` (opcional) e a URL do
+  Postgres sobrescrita pro nome do serviço (`postgres:5432`) dentro da rede do compose. Porta do
+  Postgres no host é configurável via `CHAINWISE_PG_PORT` (default `5432`) pra não colidir com
+  outro Postgres local — validei ao vivo com `CHAINWISE_PG_PORT=5433 docker compose up`
+  (`/` e `/network` respondendo, checkpointer conectando via nome de serviço).
+- **70 testes** (unitários, tudo mockado via `httpx.MockTransport`/fakes — nenhum teste bate em
+  rede real), lint (`ruff`) e typecheck (`pyright`) limpos. Rodar com `make check`.
 - **4 revisões de qualidade de código** já passaram por essa base (via skill `code-quality`) —
   achados corrigidos: deduplicação de erro/network lookup nas rotas, bug real de decode ABI
   vazio, layering de `TokenMetadata`, `GitHubRateLimitedError` sem uso real, e (4ª rodada,
@@ -63,17 +79,22 @@ testado (unitário + validado ao vivo contra APIs reais) e commitado em `main`.
    `agent/prompts.py::DIAGNOSE_SYSTEM_PROMPT` estrutura a resposta em o que foi tentado / causa
    provável / próximos passos, deixando claro quando a causa é inferência (sem `revert_reason`
    do explorer) em vez de fato. Testado em `tests/test_agent.py`.
-2. **Fechar o teste de portabilidade da Gnosis Chain** — o RPC já foi validado, só falta o
-   explorer voltar ao ar (ou achar uma URL alternativa) pra rodar o `/explain` completo nessa
-   rede também.
-3. **Frontend mínimo** — só existe um `.gitkeep` em `src/frontend/`. É o próximo bloco de
-   trabalho depois do backend estar fechado.
-4. **README + `docs/examples.md`** — setup, config, pelo menos 3 exemplos reais de
+2. ~~**Cache local + retries nos adapters**~~ — feito: `chainwise/cache.py::ttl_cache` (30s) em
+   `_get_transaction_summary`; `httpx.HTTPTransport(retries=2)` como transport padrão em todos os
+   adapters. Ver seção "O que já funciona".
+3. ~~**Docker Compose cobrindo o backend**~~ — feito: `make up`/`make down`. Ver seção "O que já
+   funciona".
+4. **Gnosis Chain** — reconferido em 2026-08-20: RPC ok, explorer (`gnosis.blockscout.com`)
+   continua redirecionando (301) pra `gnosisscan.io`, não Blockscout-compatible. Segue bloqueado
+   por serviço externo, não por código nosso.
+5. **Bônus** (em andamento, um de cada vez): structured triage flow, modos
+   developer/support/auditor, multi-transaction analysis, gas optimization suggestions, security
+   vulnerability detection.
+6. **Frontend mínimo** — só existe um `.gitkeep` em `src/frontend/`. Deixado por último, depois
+   do backend (core + bônus que entrarem) estar fechado.
+7. **README + `docs/examples.md`** — setup, config, pelo menos 3 exemplos reais de
    query/output (já temos vários rodados ao longo do desenvolvimento pra reaproveitar, incluindo
    um caso de repo grounding real com `go-ethereum`).
-5. **Bônus** (se sobrar tempo): structured triage flow, modos developer/support/auditor,
-   multi-transaction analysis, gas optimization suggestions, security vulnerability detection.
-   Nada disso foi iniciado ainda.
 
 ### Problemas conhecidos
 
@@ -148,7 +169,7 @@ O projeto será entregue como um repositório localmente executável, com README
 | Blockchain | `httpx` (JSON-RPC puro) + `eth_abi`/`eth_utils` | Chamadas EVM (`eth_call`) via HTTP direto, sem `web3.py` inteiro; decodificação de ABI real (selectors via `keccak256`, `eth_abi.decode`) só onde precisamos (repo grounding). |
 | LLM | OpenRouter | Acesso a múltiplos modelos (GPT-4o, Claude, DeepSeek, etc.) com uma única API. |
 | Agent/Pipeline | **LangGraph** | Decisão revista: o roadmap tem branches reais (triage, modos, multi-tx), então um grafo com nós/edges explícitos + checkpointing embutido ganhou de um pipeline customizado. Ver ADR 0002. |
-| Cache/Storage | Postgres (checkpoints do LangGraph) | Sem cache de ABI/resposta ainda — não implementado. |
+| Cache/Storage | Postgres (checkpoints do LangGraph) + `chainwise/cache.py::ttl_cache` (in-memory, sem dependência nova) pra resposta da Blockscout. |
 | Frontend | Next.js ou HTML+JS simples | Web preferencial, mas pode ser minimalista. |
 | Configuração | Pydantic Settings + YAML/`.env` | Centralizada, tipada e validada. |
 | Testes | pytest | Testes unitários e de integração. |
@@ -275,7 +296,9 @@ chainwise/
 - `services/`: lógica pura, independente de framework web. `token_detector.py`/`explainer.py` do desenho original acabaram não virando arquivos separados — a detecção de transfer ficou inline em `api/routes.py` (é um one-liner) e a montagem do prompt virou o próprio `LLMPromptPayload` em `api/schemas.py`.
 - `agent/`: orquestração do grafo LangGraph e prompts (o `workflow.py` do desenho original virou `graph.py`).
 - `models/domain.py`: existe especificamente para DTOs que tanto `services/` quanto `api/` precisam — evita um ciclo de import entre as duas camadas (ver histórico de commits do `repo_grounding`/`enricher` pra contexto).
-- `infrastructure/cache.py` do desenho original não foi criado — não há cache de ABI/resposta ainda.
+- `infrastructure/cache.py` do desenho original virou `chainwise/cache.py` (fora de
+  `infrastructure/`, que nunca existiu como pasta própria) — `ttl_cache`, aplicado hoje só na
+  resposta da Blockscout, não em ABI.
 - `docs/`: centraliza toda a documentação do projeto, incluindo os ADRs (`docs/adr/`).
 
 ---
@@ -330,13 +353,14 @@ chainwise/
 - [x] Implementar `config/settings.py` com Pydantic.
 - [x] Criar schemas de request/response.
 
-### Fase 2 — Adapters ✅ (exceto cache/retries)
+### Fase 2 — Adapters ✅
 - [x] Implementar `blockscout.py` (tx, receipt, logs, ABI).
-- [x] Implementar `rpc.py` (`eth_call`, `getCode`).
+- [x] Implementar `rpc.py` (`eth_call`).
 - [x] Implementar `github.py` (busca de código em repos configurados).
 - [x] Implementar chamada ao LLM — `agent/llm.py` (`ChatOpenAI` apontado pro OpenRouter; não virou
       um adapter próprio porque já é a interface do LangChain, ver ADR 0002).
-- [ ] Adicionar cache local e retries — não implementado ainda.
+- [x] Adicionar cache local e retries — `chainwise/cache.py::ttl_cache` em
+      `_get_transaction_summary`; `httpx.HTTPTransport(retries=2)` em todos os adapters.
 
 ### Fase 3 — Serviços Core ✅ (exceto explainer.py como arquivo próprio)
 - [x] Implementar `decoder.py` (decodificação de funções via ABI — selectors, structs, calldata).
@@ -364,12 +388,12 @@ chainwise/
 ### Fase 6 — Documentação e Testes (parcial)
 - [ ] Escrever README completo.
 - [ ] Criar `docs/examples.md` com 3+ exemplos.
-- [x] Adicionar testes unitários — 67 testes, tudo mockado (`httpx.MockTransport`), sem testes de
+- [x] Adicionar testes unitários — 70 testes, tudo mockado (`httpx.MockTransport`), sem testes de
       integração batendo em rede real (validação real foi feita manualmente, ver seção 0).
 - [x] Revisar config-driven portability com pelo menos 2 redes — Ethereum mainnet e Polygon PoS
       validadas ponta a ponta; Gnosis Chain com RPC validado, explorer pendente (fora do ar).
-- [ ] Criar docker compose opcional — existe `docker-compose.yml` só para o Postgres do
-      checkpointer; não cobre backend/frontend ainda.
+- [x] Criar docker compose cobrindo o backend — `postgres` + `backend` juntos, `make up`/
+      `make down`, validado ao vivo (`docker compose build` + `up` + `/` e `/network` respondendo).
 
 ---
 

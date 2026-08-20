@@ -6,7 +6,10 @@ services:
       POSTGRES_PASSWORD: chainwise
       POSTGRES_DB: chainwise
     ports:
-      - "5432:5432"
+      # Override with CHAINWISE_PG_PORT=<port> if 5432 is already taken by
+      # another local Postgres — the internal 5432 (used by `backend` on
+      # the compose network) is unaffected either way.
+      - "${CHAINWISE_PG_PORT:-5432}:5432"
     volumes:
       - chainwise_postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -14,6 +17,24 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
+
+  backend:
+    build:
+      context: ./src/backend
+    env_file:
+      # Copy src/backend/.env.example to src/backend/.env and fill in
+      # OPENROUTER_API_KEY (required) / GITHUB_TOKEN (optional) first.
+      - path: ./src/backend/.env
+        required: false
+    environment:
+      # Overrides .env: from inside this network postgres is reached by
+      # service name, not localhost.
+      CHAINWISE_DATABASE_URL: postgresql://chainwise:chainwise@postgres:5432/chainwise
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
 
 volumes:
   chainwise_postgres_data:
