@@ -40,6 +40,20 @@ function App() {
       .catch(() => setNetworkError(true));
   }, []);
 
+  useEffect(() => {
+    // Purely decorative: the background glow (index.css, body's --mx/--my)
+    // follows the cursor. Skipped under reduced-motion so the glow just
+    // stays put instead of chasing the mouse.
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+
+    function handleMouseMove(e: MouseEvent) {
+      document.body.style.setProperty("--mx", `${e.clientX}px`);
+      document.body.style.setProperty("--my", `${e.clientY}px`);
+    }
+    window.addEventListener("mousemove", handleMouseMove);
+    return () => window.removeEventListener("mousemove", handleMouseMove);
+  }, []);
+
   async function handleSubmit(hashes: string[]) {
     setResult({ kind: "loading" });
     try {
