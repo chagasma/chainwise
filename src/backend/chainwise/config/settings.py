@@ -22,6 +22,10 @@ class Settings(BaseSettings):
     openrouter_model: str = Field(
         default="openai/gpt-4.1-mini", validation_alias="OPENROUTER_MODEL"
     )
+    # Optional: raises GitHub's API rate limit (code search is ~10 req/min
+    # unauthenticated). Repo grounding degrades to "no match" without it,
+    # it isn't required to run the app.
+    github_token: str = Field(default="", validation_alias="GITHUB_TOKEN")
 
 
 @lru_cache

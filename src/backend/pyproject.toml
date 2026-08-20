@@ -12,6 +12,9 @@ dependencies = [
     "langchain-openai==1.6.0",
     "langgraph-checkpoint-postgres==3.1.2",
     "psycopg[binary,pool]==3.3.4",
+    "eth-abi>=5.2.0",
+    "eth-utils>=6.0.0",
+    "eth-hash[pycryptodome]>=0.8.0",
 ]
 
 [dependency-groups]

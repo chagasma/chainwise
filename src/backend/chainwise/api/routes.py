@@ -13,7 +13,7 @@ from chainwise.api.schemas import (
 )
 from chainwise.config import NetworkConfig, Settings, get_settings, load_network
 from chainwise.observability import get_logger
-from chainwise.services import enrich_tokens
+from chainwise.services import enrich_tokens, ground_transaction
 
 logger = get_logger("chainwise.api")
 
@@ -75,6 +75,7 @@ def get_transaction(
 def explain_transaction(
     tx_hash: str,
     network: NetworkConfig = Depends(get_network),
+    settings: Settings = Depends(get_settings),
     graph: CompiledStateGraph = Depends(get_graph),
 ) -> ExplanationResponse:
     summary = _get_transaction_summary(tx_hash, network)
@@ -85,7 +86,15 @@ def explain_transaction(
     }
     tokens = enrich_tokens(transfer_addresses, network)
 
-    prompt_content = LLMPromptPayload(summary=summary, tokens=tokens).model_dump_json(indent=2)
+    # abi_strategy fallback: only worth searching repos when the explorer
+    # itself had no ABI to decode the call with.
+    grounding = None
+    if summary.decoded_input is None:
+        grounding = ground_transaction(summary.raw_input, network, settings.github_token)
+
+    prompt_content = LLMPromptPayload(
+        summary=summary, tokens=tokens, grounding=grounding
+    ).model_dump_json(indent=2)
     initial_state = {
         "messages": [
             SystemMessage(content=EXPLAIN_SYSTEM_PROMPT),
@@ -105,5 +114,9 @@ def explain_transaction(
 
     explanation = result["messages"][-1].content
     return ExplanationResponse(
-        summary=summary, tokens=tokens, explanation=explanation, thread_id=tx_hash
+        summary=summary,
+        tokens=tokens,
+        grounding=grounding,
+        explanation=explanation,
+        thread_id=tx_hash,
     )

@@ -1,3 +1,5 @@
+from typing import Any
+
 from pydantic import BaseModel
 
 
@@ -13,3 +15,30 @@ class TokenMetadata(BaseModel):
     address: str
     symbol: str | None
     decimals: int | None
+
+
+class DecodedCall(BaseModel):
+    """A function call decoded against a specific ABI entry.
+
+    `parameters` values are JSON-safe: ints are stringified (mirrors
+    `TransactionSummary.value_wei` — avoids precision loss for uint256) and
+    `bytes` become "0x"-prefixed hex.
+    """
+
+    function: str
+    signature: str
+    parameters: dict[str, Any]
+
+
+class RepoGroundingResult(BaseModel):
+    """A transaction's input decoded against an ABI artifact found in a configured repo.
+
+    The fallback path of the network's `abi_strategy`: only produced when
+    the explorer didn't already decode the call. `source_url` cites the
+    exact file so the explanation can link to the real contract source.
+    """
+
+    repo: str
+    file_path: str
+    source_url: str
+    decoded_call: DecodedCall

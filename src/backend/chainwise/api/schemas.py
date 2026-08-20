@@ -2,7 +2,7 @@ from typing import Any, Literal, Self
 
 from pydantic import BaseModel
 
-from chainwise.models import TokenMetadata
+from chainwise.models import RepoGroundingResult, TokenMetadata
 
 
 def _nested(d: dict[str, Any] | None, key: str) -> Any | None:
@@ -34,6 +34,7 @@ class TransactionSummary(BaseModel):
     fee_wei: str | None
     method: str | None
     decoded_input: dict[str, Any] | None
+    raw_input: str | None
     revert_reason: str | None
     logs: list[LogEntry]
     source_url: str
@@ -59,6 +60,7 @@ class TransactionSummary(BaseModel):
             fee_wei=_nested(tx.get("fee"), "value"),
             method=tx.get("method"),
             decoded_input=tx.get("decoded_input"),
+            raw_input=tx.get("raw_input"),
             revert_reason=tx.get("revert_reason"),
             logs=[
                 LogEntry(
@@ -77,6 +79,7 @@ class LLMPromptPayload(BaseModel):
 
     summary: TransactionSummary
     tokens: list[TokenMetadata]
+    grounding: RepoGroundingResult | None
 
 
 class ExplanationResponse(BaseModel):
@@ -84,5 +87,6 @@ class ExplanationResponse(BaseModel):
 
     summary: TransactionSummary
     tokens: list[TokenMetadata]
+    grounding: RepoGroundingResult | None
     explanation: str
     thread_id: str
