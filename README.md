@@ -41,11 +41,11 @@ Search screen:
 
 Result: transaction info on the left, the explanation on the right:
 
-![Explanation view](docs/screenshots/explanation.png)
+![Chat follow up](docs/screenshots/chat.png)
 
 Follow up questions stay in the same conversation, right below the explanation:
 
-![Chat follow up](docs/screenshots/chat.png)
+![Explanation view](docs/screenshots/explanation.png)
 
 ## Project layout
 
