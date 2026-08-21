@@ -1,5 +1,7 @@
 # ChainWise
 
+<img src="docs/screenshots/wise-mage.png" alt="ChainWise" width="220" />
+
 ChainWise is an AI assistant that explains and troubleshoots EVM transactions. Give it a
 transaction hash and it reads the explorer, the chain, and the contract's own source code, then
 returns a plain language explanation with sources cited. It is network agnostic: switching from
@@ -28,6 +30,16 @@ Built for the CloudWalk Nimbus 1.4 challenge ("AnyChain Transaction Assistant").
   paste an ABI to unblock a triage question, or dig deeper into any part of the answer.
 - **Grounded answers**: every response cites the explorer link, and the repo file when a contract
   is explained by matching its source ABI instead of the explorer's.
+
+## Screenshots
+
+| Search | Result |
+|---|---|
+| ![Search screen](docs/screenshots/search.png) | ![Explanation view](docs/screenshots/explanation.png) |
+
+Follow up questions stay in the same conversation, right next to the explanation:
+
+![Chat follow up](docs/screenshots/chat.png)
 
 ## Project layout
 
