@@ -35,11 +35,15 @@ Built for the CloudWalk Nimbus 1.4 challenge ("AnyChain Transaction Assistant").
 
 ## Screenshots
 
-| Search | Result |
-|---|---|
-| ![Search screen](docs/screenshots/search.png) | ![Explanation view](docs/screenshots/explanation.png) |
+Search screen:
 
-Follow up questions stay in the same conversation, right next to the explanation:
+![Search screen](docs/screenshots/search.png)
+
+Result: transaction info on the left, the explanation on the right:
+
+![Explanation view](docs/screenshots/explanation.png)
+
+Follow up questions stay in the same conversation, right below the explanation:
 
 ![Chat follow up](docs/screenshots/chat.png)
 
