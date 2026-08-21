@@ -1,7 +1,5 @@
 # ChainWise
 
-<img src="docs/screenshots/wise-mage.png" alt="ChainWise" width="220" />
-
 ChainWise is an AI assistant that explains and troubleshoots EVM transactions. Give it a
 transaction hash and it reads the explorer, the chain, and the contract's own source code, then
 returns a plain language explanation with sources cited. It is network agnostic: switching from
@@ -10,6 +8,10 @@ is a config change, not a code change.
 
 Built for the CloudWalk Nimbus 1.4 challenge ("AnyChain Transaction Assistant"). See
 `docs/nimbus.md` for the original brief and `docs/planning.md` for the full implementation log.
+
+<p align="center">
+  <img src="docs/screenshots/wise-mage.png" alt="ChainWise" width="220" />
+</p>
 
 ## What it does
 
